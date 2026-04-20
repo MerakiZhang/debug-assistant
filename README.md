@@ -50,14 +50,14 @@ cargo run --release
 
 | 按键 | 功能 |
 |------|------|
-| F1 | 帮助 |
+| F1 | 打开帮助（任意键关闭） |
 | F2 | 串口配置 / 连接 |
 | F3 | 清除接收日志 |
 | F4 | 切换显示模式（ASCII → HEX → BOTH） |
 | F5 | 切换自动滚动 |
 | Tab | 切换焦点（接收 ↔ 发送） |
 | Ctrl+D | 断开连接 |
-| Ctrl+C / Q | 退出 |
+| Ctrl+C / q | 退出 |
 
 ### 发送面板
 
@@ -67,6 +67,7 @@ cargo run --release
 | ↑ / ↓ | 浏览发送历史 |
 | ← / → | 移动光标 |
 | Home / End | 跳至行首 / 行尾 |
+| Backspace / Delete | 删除字符 |
 | Ctrl+H | 切换 HEX 发送模式 |
 | Ctrl+N | 切换换行后缀（None → CR → LF → CRLF） |
 
@@ -82,7 +83,8 @@ cargo run --release
 
 | 按键 | 功能 |
 |------|------|
-| ↑ / ↓ | 切换配置项 |
+| ↑ / ↓ / Tab | 切换配置项 |
+| Shift+Tab | 上一个配置项 |
 | ← / → | 修改当前值 |
 | Enter | 应用并连接 |
 | Esc | 取消 |

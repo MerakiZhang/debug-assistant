@@ -214,7 +214,7 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
         Span::raw(format!("  TX:{}", fmt_bytes(app.bytes_tx))),
         Span::raw(format!("  RX:{}", fmt_bytes(app.bytes_rx))),
         Span::styled(
-            "  │  F1:Help F2:Config F3:Clear F4:Mode F5:AutoScroll Tab:Focus Q:Quit",
+            "  │  F1:Help F2:Config F3:Clear F4:Mode F5:AutoScroll Tab:Focus q:Quit",
             Style::default().fg(Color::DarkGray),
         ),
     ]);
@@ -273,7 +273,7 @@ fn render_config_popup(frame: &mut Frame, app: &App, area: Rect) {
         Span::styled(" Enter:Connect ", Style::default().bg(Color::Green).fg(Color::Black).add_modifier(Modifier::BOLD)),
         Span::raw("   "),
         Span::styled(" Esc:Cancel ", Style::default().bg(Color::Red).fg(Color::White)),
-        Span::styled("   ↑↓:Navigate  ←→:Change", Style::default().fg(Color::DarkGray)),
+        Span::styled("   ↑↓/Tab:Navigate  ←→:Change", Style::default().fg(Color::DarkGray)),
     ]);
     frame.render_widget(Paragraph::new(btn), rows[7]);
 }
@@ -292,14 +292,14 @@ fn render_help_overlay(frame: &mut Frame, area: Rect) {
 
     let lines: Vec<Line<'static>> = vec![
         Line::from(Span::styled("  Global", h())),
-        Line::from("  F1              Toggle this help"),
+        Line::from("  F1              Open help (any key closes)"),
         Line::from("  F2              Open config / connect"),
         Line::from("  F3              Clear receive log"),
         Line::from("  F4              Cycle display mode (ASCII → HEX → BOTH)"),
         Line::from("  F5              Toggle auto-scroll"),
         Line::from("  Tab             Switch focus: Receive ↔ Send"),
         Line::from("  Ctrl+D          Disconnect"),
-        Line::from("  Ctrl+C / Q      Quit"),
+        Line::from("  Ctrl+C / q      Quit"),
         Line::from(""),
         Line::from(Span::styled("  Send Panel", h())),
         Line::from("  Enter           Send current input"),
@@ -316,7 +316,8 @@ fn render_help_overlay(frame: &mut Frame, area: Rect) {
         Line::from("  Home / End       Jump to top / bottom"),
         Line::from(""),
         Line::from(Span::styled("  Config Popup", h())),
-        Line::from("  ↑ / ↓ / Tab     Move between fields"),
+        Line::from("  ↑ / ↓ / Tab     Next/prev field"),
+        Line::from("  Shift+Tab       Previous field"),
         Line::from("  ← / →           Change value"),
         Line::from("  Enter           Apply settings and connect"),
         Line::from("  Esc             Cancel"),
