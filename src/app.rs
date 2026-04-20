@@ -8,6 +8,8 @@ use crate::serial::{
     PARITY_OPTIONS, STOP_BITS_OPTIONS,
 };
 
+const MAX_LOG_ENTRIES: usize = 5000;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
     Receive,
@@ -247,16 +249,27 @@ impl App {
             return;
         }
         self.log.push(LogEntry { timestamp: Local::now(), raw, direction: Direction::Rx });
+        self.trim_log_if_needed();
     }
 
     pub fn push_tx(&mut self, data: Vec<u8>) {
         self.log.push(LogEntry { timestamp: Local::now(), raw: data, direction: Direction::Tx });
+        self.trim_log_if_needed();
         self.ensure_auto_scroll();
     }
 
     pub fn push_status(&mut self, msg: String) {
         self.log.push(LogEntry { timestamp: Local::now(), raw: msg.into_bytes(), direction: Direction::Status });
+        self.trim_log_if_needed();
         self.ensure_auto_scroll();
+    }
+
+    fn trim_log_if_needed(&mut self) {
+        if self.log.len() > MAX_LOG_ENTRIES {
+            let overflow = self.log.len() - MAX_LOG_ENTRIES;
+            self.log.drain(0..overflow);
+            self.log_scroll = self.log_scroll.saturating_sub(overflow);
+        }
     }
 
     pub fn clear_log(&mut self) {
@@ -372,17 +385,23 @@ impl App {
     }
 
     pub fn disconnect(&mut self) {
+        self.disconnect_with_status(true);
+    }
+
+    pub fn disconnect_with_status(&mut self, show_status: bool) {
         if self.connected {
             self.connected = false;
             if let Some(flag) = self.stop_flag.take() {
                 flag.store(true, Ordering::Relaxed);
             }
             self.serial_tx = None;
-            self.push_status("Disconnected".to_string());
+            if show_status {
+                self.push_status("Disconnected".to_string());
+            }
         }
     }
 
-    pub fn send_current_input(&mut self) -> Option<Vec<u8>> {
+    pub fn prepare_current_input_bytes(&mut self) -> Option<Vec<u8>> {
         if self.input_buf.is_empty() {
             return None;
         }
@@ -401,6 +420,14 @@ impl App {
         let mut to_send = payload;
         to_send.extend_from_slice(self.newline_suffix.bytes());
 
+        Some(to_send)
+    }
+
+    pub fn commit_sent_input(&mut self, sent: Vec<u8>) {
+        if self.input_buf.is_empty() {
+            return;
+        }
+
         // Save to history (dedup last entry)
         let s = self.input_buf.clone();
         if self.send_history.last().map(|x| x != &s).unwrap_or(true) {
@@ -413,9 +440,8 @@ impl App {
         self.input_buf.clear();
         self.cursor_pos = 0;
 
-        self.bytes_tx += to_send.len() as u64;
-        self.push_tx(to_send.clone());
-        Some(to_send)
+        self.bytes_tx += sent.len() as u64;
+        self.push_tx(sent);
     }
 
     pub fn config_field_next_option(&mut self) {

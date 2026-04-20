@@ -39,7 +39,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal) -> anyhow::Result<()> {
             }
             AppEvent::SerialError(msg) => {
                 let was = app.connected;
-                app.disconnect();
+                app.disconnect_with_status(false);
                 if was {
                     app.push_status(format!("Serial error: {}", msg));
                 }
@@ -75,8 +75,7 @@ fn handle_key(
             app.should_quit = true;
             return Ok(());
         }
-        // 'q' quits only when not typing in the send panel
-        (KeyCode::Char('q'), KeyModifiers::NONE) if app.focus != Focus::Send => {
+        (KeyCode::Char('q'), KeyModifiers::NONE) => {
             app.should_quit = true;
             return Ok(());
         }
@@ -156,9 +155,17 @@ fn handle_config_key(
 fn handle_send_key(app: &mut App, code: KeyCode, mods: KeyModifiers) -> anyhow::Result<()> {
     match (code, mods) {
         (KeyCode::Enter, _) => {
-            if let Some(bytes) = app.send_current_input() {
-                if let Some(ref serial_tx) = app.serial_tx {
-                    let _ = serial_tx.send(bytes);
+            if app.input_buf.is_empty() {
+                return Ok(());
+            }
+            let Some(serial_tx) = app.serial_tx.clone() else {
+                app.push_status("Not connected".to_string());
+                return Ok(());
+            };
+            if let Some(bytes) = app.prepare_current_input_bytes() {
+                match serial_tx.send(bytes.clone()) {
+                    Ok(()) => app.commit_sent_input(bytes),
+                    Err(_) => app.push_status("Send failed: disconnected".to_string()),
                 }
             }
         }
