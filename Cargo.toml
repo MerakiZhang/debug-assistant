@@ -1,0 +1,16 @@
+[package]
+name = "debug-assistant"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "debug-assistant"
+path = "src/main.rs"
+
+[dependencies]
+ratatui    = "0.29"
+crossterm  = "0.28"
+serialport = "4.6"
+chrono     = { version = "0.4", features = ["std", "clock"], default-features = false }
+anyhow          = "1.0"
+unicode-width   = "0.2"
