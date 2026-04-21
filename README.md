@@ -40,19 +40,17 @@ cargo build --release
 
 当前版本号来自 `Cargo.toml`，例如当前版本为 `0.1.0`。
 
-发布文件统一放在项目根目录下的版本目录中：
+发布文件统一放在项目根目录下的 `release` 目录中：
 
-`dist/debug-assistant-v0.1.0/`
+`release/debug-assistant-v0.1.0/`
 
-目录内包含以下文件：
+目录内当前包含以下文件：
 
-- `debug-assistant-v0.1.0-debug.exe`
 - `debug-assistant-v0.1.0-release.exe`
 
 说明：
 
 - `release` 版本用于正式发布，性能和体积更适合日常使用
-- `debug` 版本用于调试、问题定位和开发验证
 
 ## 使用
 
