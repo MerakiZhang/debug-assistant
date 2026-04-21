@@ -24,7 +24,7 @@
 cargo build --release
 ```
 
-产物位于 `target/release/debug-assistant`（Windows 为 `.exe`）。
+产物位于 `target/release/debug-assistant`。
 
 ## 发布
 
@@ -40,7 +40,7 @@ cargo build --release
 
 说明：
 
-- `release` 版本用于正式发布，性能和体积更适合日常使用
+- `release` 版本用于正式发布，性能和体积更适合日常使用。
 
 ## 使用
 
