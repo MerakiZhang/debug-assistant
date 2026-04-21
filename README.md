@@ -1,6 +1,6 @@
 # Serial Debug Assistant
 
-基于终端的串口调试工具，使用 Rust 编写，支持中英文显示。
+基于终端的串口调试工具，使用 Rust 编写。
 
 ## 功能
 
@@ -14,19 +14,9 @@
 
 ## 界面
 
-```
-┌ Receive ─ [ASCII] [Auto↓:ON] [F3:Clear] ──────────────────────┐
-│ [10:23:45.123 RX] Hello, 世界                                   │
-│ [10:23:45.456 TX] AT+VERSION                                    │
-│                                                              ↑  │
-│                                                              █  │
-│                                                              ↓  │
-├ Send ─ [Suffix:LF] [HEX:off] ─────────────────────────────────┤
-│ > _                                                             │
-● CONNECTED  COM3 115200 8N1  TX:12B  RX:1.2K  │  F1:Help ...
-```
+![界面演示](images/demo.png)
 
-## 安装
+## 构建
 
 需要 Rust 工具链（1.75+）：
 
