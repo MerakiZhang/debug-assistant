@@ -12,11 +12,23 @@ pub fn render(frame: &mut Frame, state: &HomeState) {
     let area = frame.area();
 
     let [title_area, menu_area, footer_area] = Layout::vertical([
-        Constraint::Percentage(45),
+        Constraint::Percentage(52),
         Constraint::Fill(1),
         Constraint::Length(1),
     ])
     .areas(area);
+
+    let [title_top_gap, title_inner_area] =
+        Layout::vertical([Constraint::Length(2), Constraint::Fill(1)]).areas(title_area);
+
+    let _ = title_top_gap;
+
+    let [_, centered_title_area, _] = Layout::vertical([
+        Constraint::Fill(1),
+        Constraint::Length(11),
+        Constraint::Fill(1),
+    ])
+    .areas(title_inner_area);
 
     // BigText title: "Debug" / "Assistant" stacked, centered
     let big = BigText::builder()
@@ -29,19 +41,19 @@ pub fn render(frame: &mut Frame, state: &HomeState) {
         )
         .lines(vec![Line::from("Debug"), Line::from("Assistant")])
         .build();
-    frame.render_widget(big, title_area);
+    frame.render_widget(big, centered_title_area);
 
     // Centered menu box
     let [_, center_col, _] = Layout::horizontal([
         Constraint::Fill(1),
-        Constraint::Length(32),
+        Constraint::Length(40),
         Constraint::Fill(1),
     ])
     .areas(menu_area);
 
     let [_, items_area, _] = Layout::vertical([
-        Constraint::Fill(1),
-        Constraint::Length(MENU_ITEMS.len() as u16 + 2),
+        Constraint::Percentage(30),
+        Constraint::Length(MENU_ITEMS.len() as u16 + 4),
         Constraint::Fill(1),
     ])
     .areas(center_col);
