@@ -1,40 +1,42 @@
+use crate::event::AppEvent;
+use serialport::{DataBits, FlowControl, Parity, StopBits};
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc::Sender, Arc};
 use std::time::Duration;
-use serialport::{DataBits, FlowControl, Parity, StopBits};
-use crate::event::AppEvent;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SerialConfig {
-    pub port_name:    String,
-    pub baud_rate:    u32,
-    pub data_bits:    DataBits,
-    pub stop_bits:    StopBits,
-    pub parity:       Parity,
+    pub port_name: String,
+    pub baud_rate: u32,
+    pub data_bits: DataBits,
+    pub stop_bits: StopBits,
+    pub parity: Parity,
     pub flow_control: FlowControl,
 }
 
 impl Default for SerialConfig {
     fn default() -> Self {
         Self {
-            port_name:    String::new(),
-            baud_rate:    115200,
-            data_bits:    DataBits::Eight,
-            stop_bits:    StopBits::One,
-            parity:       Parity::None,
+            port_name: String::new(),
+            baud_rate: 115200,
+            data_bits: DataBits::Eight,
+            stop_bits: StopBits::One,
+            parity: Parity::None,
             flow_control: FlowControl::None,
         }
     }
 }
 
 pub const BAUD_PRESETS: &[u32] = &[
-    300, 600, 1200, 2400, 4800, 9600, 19200, 38400, 57600,
-    115200, 230400, 460800, 921600,
+    300, 600, 1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600,
 ];
 
 pub const DATA_BITS_OPTIONS: &[DataBits] = &[
-    DataBits::Five, DataBits::Six, DataBits::Seven, DataBits::Eight,
+    DataBits::Five,
+    DataBits::Six,
+    DataBits::Seven,
+    DataBits::Eight,
 ];
 
 pub const STOP_BITS_OPTIONS: &[StopBits] = &[StopBits::One, StopBits::Two];
@@ -42,13 +44,15 @@ pub const STOP_BITS_OPTIONS: &[StopBits] = &[StopBits::One, StopBits::Two];
 pub const PARITY_OPTIONS: &[Parity] = &[Parity::None, Parity::Even, Parity::Odd];
 
 pub const FLOW_CONTROL_OPTIONS: &[FlowControl] = &[
-    FlowControl::None, FlowControl::Software, FlowControl::Hardware,
+    FlowControl::None,
+    FlowControl::Software,
+    FlowControl::Hardware,
 ];
 
 pub fn data_bits_label(d: DataBits) -> &'static str {
     match d {
-        DataBits::Five  => "5",
-        DataBits::Six   => "6",
+        DataBits::Five => "5",
+        DataBits::Six => "6",
         DataBits::Seven => "7",
         DataBits::Eight => "8",
     }
@@ -65,7 +69,7 @@ pub fn parity_label(p: Parity) -> &'static str {
     match p {
         Parity::None => "None",
         Parity::Even => "Even",
-        Parity::Odd  => "Odd",
+        Parity::Odd => "Odd",
     }
 }
 
@@ -73,13 +77,13 @@ pub fn parity_short(p: Parity) -> &'static str {
     match p {
         Parity::None => "N",
         Parity::Even => "E",
-        Parity::Odd  => "O",
+        Parity::Odd => "O",
     }
 }
 
 pub fn flow_control_label(f: FlowControl) -> &'static str {
     match f {
-        FlowControl::None     => "None",
+        FlowControl::None => "None",
         FlowControl::Software => "XON/XOFF",
         FlowControl::Hardware => "RTS/CTS",
     }

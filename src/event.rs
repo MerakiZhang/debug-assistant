@@ -1,6 +1,6 @@
+use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use std::sync::mpsc::Sender;
 use std::time::Duration;
-use crossterm::event::{self, Event, KeyCode, KeyModifiers, KeyEventKind};
 
 #[derive(Debug)]
 pub enum AppEvent {
@@ -10,6 +10,9 @@ pub enum AppEvent {
     SerialData(Vec<u8>),
     SerialError(String),
     SerialDisconnected,
+    FlasherLog(String),
+    FlasherProgress(u8),
+    FlasherDone { success: bool, message: String },
 }
 
 pub fn spawn_event_thread(tx: Sender<AppEvent>) {

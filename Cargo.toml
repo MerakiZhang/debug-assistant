@@ -1,6 +1,6 @@
 [package]
 name = "debug-assistant"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 
 [[bin]]
@@ -8,9 +8,12 @@ name = "debug-assistant"
 path = "src/main.rs"
 
 [dependencies]
-ratatui    = "0.29"
+ratatui    = "0.30"
 crossterm  = "0.28"
 serialport = "4.6"
 chrono     = { version = "0.4", features = ["std", "clock"], default-features = false }
 anyhow          = "1.0"
 unicode-width   = "0.2"
+tui-big-text    = "0.8"
+probe-rs        = { version = "0.31", features = ["builtin-targets"] }
+ihex            = "3.0"

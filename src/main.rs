@@ -1,12 +1,14 @@
-mod app;
 mod event;
+mod flasher;
+mod home;
+mod root_app;
+mod root_ui;
 mod serial;
-mod ui;
+mod serial_monitor;
 
-use std::sync::mpsc;
-use crossterm::event::{KeyCode, KeyModifiers};
-use app::{App, Focus};
 use event::AppEvent;
+use root_app::RootApp;
+use std::sync::mpsc;
 
 fn main() -> anyhow::Result<()> {
     let mut terminal = ratatui::init();
@@ -17,35 +19,52 @@ fn main() -> anyhow::Result<()> {
 
 fn run(terminal: &mut ratatui::DefaultTerminal) -> anyhow::Result<()> {
     let (tx, rx) = mpsc::channel::<AppEvent>();
-    let mut app = App::new();
+    let mut app = RootApp::new(tx.clone());
 
     event::spawn_event_thread(tx.clone());
 
     loop {
-        terminal.draw(|frame| ui::render(frame, &app))?;
+        terminal.draw(|frame| root_ui::render(frame, &app))?;
 
         match rx.recv()? {
-            AppEvent::Tick => {
-                app.flush_rx_buf();
-                app.ensure_auto_scroll();
-            }
-            AppEvent::Key(code, mods) => {
-                handle_key(&mut app, code, mods, tx.clone())?;
-            }
+            AppEvent::Tick => app.on_tick(),
+
+            AppEvent::Key(code, mods) => app.on_key(code, mods)?,
+
             AppEvent::Resize => {}
+
             AppEvent::SerialData(bytes) => {
-                app.bytes_rx += bytes.len() as u64;
-                app.push_rx(bytes);
+                app.serial_monitor.bytes_rx += bytes.len() as u64;
+                app.serial_monitor.push_rx(bytes);
             }
             AppEvent::SerialError(msg) => {
-                let was = app.connected;
-                app.disconnect_with_status(false);
+                let was = app.serial_monitor.connected;
+                app.serial_monitor.disconnect_with_status(false);
                 if was {
-                    app.push_status(format!("Serial error: {}", msg));
+                    app.serial_monitor
+                        .push_status(format!("Serial error: {}", msg));
                 }
             }
             AppEvent::SerialDisconnected => {
-                app.disconnect();
+                app.serial_monitor.disconnect();
+            }
+
+            AppEvent::FlasherLog(msg) => {
+                app.flasher.log.push(msg);
+            }
+            AppEvent::FlasherProgress(pct) => {
+                app.flasher.progress_pct = Some(pct);
+            }
+            AppEvent::FlasherDone { success, message } => {
+                app.flasher.op_done = true;
+                app.flasher.op_ok = success;
+                app.flasher.log.push(message);
+                app.flasher.progress_pct = if success {
+                    Some(100)
+                } else {
+                    app.flasher.progress_pct
+                };
+                app.flasher.stop_flag = None;
             }
         }
 
@@ -54,159 +73,4 @@ fn run(terminal: &mut ratatui::DefaultTerminal) -> anyhow::Result<()> {
         }
     }
     Ok(())
-}
-
-fn handle_key(
-    app: &mut App,
-    code: KeyCode,
-    mods: KeyModifiers,
-    tx: mpsc::Sender<AppEvent>,
-) -> anyhow::Result<()> {
-    // Help overlay: any key closes it
-    if app.show_help {
-        app.show_help = false;
-        app.focus = app.prev_focus;
-        return Ok(());
-    }
-
-    // Global shortcuts (always active)
-    match (code, mods) {
-        (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
-            app.should_quit = true;
-            return Ok(());
-        }
-        (KeyCode::Char('q'), KeyModifiers::NONE) => {
-            app.should_quit = true;
-            return Ok(());
-        }
-        (KeyCode::F(1), _) => {
-            app.prev_focus = app.focus;
-            app.show_help = true;
-            app.focus = Focus::HelpOverlay;
-            return Ok(());
-        }
-        (KeyCode::F(2), _) if !app.show_config => {
-            app.open_config_popup();
-            return Ok(());
-        }
-        (KeyCode::F(3), _) => {
-            app.clear_log();
-            return Ok(());
-        }
-        (KeyCode::F(4), _) => {
-            app.display_mode = app.display_mode.next();
-            return Ok(());
-        }
-        (KeyCode::F(5), _) => {
-            app.auto_scroll = !app.auto_scroll;
-            if app.auto_scroll {
-                app.ensure_auto_scroll();
-            }
-            return Ok(());
-        }
-        (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
-            app.disconnect();
-            return Ok(());
-        }
-        (KeyCode::Tab, KeyModifiers::NONE) if !app.show_config => {
-            app.focus = match app.focus {
-                Focus::Receive => Focus::Send,
-                Focus::Send    => Focus::Receive,
-                other          => other,
-            };
-            return Ok(());
-        }
-        _ => {}
-    }
-
-    match app.focus {
-        Focus::ConfigPopup  => handle_config_key(app, code, mods, tx)?,
-        Focus::Send         => handle_send_key(app, code, mods)?,
-        Focus::Receive      => handle_receive_key(app, code, mods),
-        Focus::HelpOverlay  => {}
-    }
-    Ok(())
-}
-
-fn handle_config_key(
-    app: &mut App,
-    code: KeyCode,
-    _mods: KeyModifiers,
-    tx: mpsc::Sender<AppEvent>,
-) -> anyhow::Result<()> {
-    match code {
-        KeyCode::Esc => app.cancel_config(),
-        KeyCode::Enter => {
-            if let Err(e) = app.apply_config_and_close(tx) {
-                app.show_config = false;
-                app.focus = Focus::Send;
-                app.push_status(format!("Connect failed: {}", e));
-            }
-        }
-        KeyCode::Up | KeyCode::BackTab => app.config_field = app.config_field.prev(),
-        KeyCode::Down | KeyCode::Tab   => app.config_field = app.config_field.next(),
-        KeyCode::Left  => app.config_field_prev_option(),
-        KeyCode::Right => app.config_field_next_option(),
-        _ => {}
-    }
-    Ok(())
-}
-
-fn handle_send_key(app: &mut App, code: KeyCode, mods: KeyModifiers) -> anyhow::Result<()> {
-    match (code, mods) {
-        (KeyCode::Enter, _) => {
-            if app.input_buf.is_empty() {
-                return Ok(());
-            }
-            let Some(serial_tx) = app.serial_tx.clone() else {
-                app.push_status("Not connected".to_string());
-                return Ok(());
-            };
-            if let Some(bytes) = app.prepare_current_input_bytes() {
-                match serial_tx.send(bytes.clone()) {
-                    Ok(()) => app.commit_sent_input(bytes),
-                    Err(_) => app.push_status("Send failed: disconnected".to_string()),
-                }
-            }
-        }
-        (KeyCode::Up, _)    => app.history_up(),
-        (KeyCode::Down, _)  => app.history_down(),
-        (KeyCode::Left, _)  => app.input_cursor_left(),
-        (KeyCode::Right, _) => app.input_cursor_right(),
-        (KeyCode::Home, _)  => app.input_cursor_home(),
-        (KeyCode::End, _)   => app.input_cursor_end(),
-        (KeyCode::Backspace, _) => app.input_backspace(),
-        (KeyCode::Delete, _)    => app.input_delete(),
-        (KeyCode::Char('h'), KeyModifiers::CONTROL) => {
-            app.hex_send_mode = !app.hex_send_mode;
-        }
-        (KeyCode::Char('n'), KeyModifiers::CONTROL) => {
-            app.newline_suffix = app.newline_suffix.cycle();
-        }
-        (KeyCode::Char(c), KeyModifiers::NONE) |
-        (KeyCode::Char(c), KeyModifiers::SHIFT) => {
-            app.input_char(c);
-        }
-        _ => {}
-    }
-    Ok(())
-}
-
-fn handle_receive_key(app: &mut App, code: KeyCode, _mods: KeyModifiers) {
-    let visible = app.rx_visible_rows.get() as usize;
-    match code {
-        KeyCode::Up       => app.scroll_up(1),
-        KeyCode::Down     => app.scroll_down(1),
-        KeyCode::PageUp   => app.scroll_up(visible.saturating_sub(1)),
-        KeyCode::PageDown => app.scroll_down(visible.saturating_sub(1)),
-        KeyCode::Home     => {
-            app.log_scroll = 0;
-            app.auto_scroll = false;
-        }
-        KeyCode::End => {
-            app.auto_scroll = true;
-            app.ensure_auto_scroll();
-        }
-        _ => {}
-    }
 }
