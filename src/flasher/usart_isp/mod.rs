@@ -148,8 +148,55 @@ fn run_isp(
 
     check_stop!();
 
-    log!("Synchronizing with STM32 bootloader...");
-    protocol::sync(port.as_mut(), 3).map_err(|e| {
+    let mut synced = false;
+
+    // Phase 1: try up to 2 times at the user-selected baud rate
+    for attempt in 0..2 {
+        if attempt > 0 {
+            log!(
+                "Retry {}/2 at {} baud: re-entering bootloader...",
+                attempt + 1,
+                baud_rate
+            );
+            enter_bootloader(port.as_mut(), boot, tx)?;
+            check_stop!();
+        }
+
+        log!("Synchronizing with STM32 bootloader at {} baud...", baud_rate);
+        if protocol::sync(port.as_mut(), 3).is_ok() {
+            log!("Synchronized at {} baud!", baud_rate);
+            synced = true;
+            break;
+        }
+    }
+
+    // Phase 2: fall back to 115200 if still not synced
+    if !synced && baud_rate > 115200 {
+        log!(
+            "Baud rate {} baud is unstable, falling back to 115200 baud...",
+            baud_rate
+        );
+        port.set_baud_rate(115200)?;
+
+        for attempt in 0..2 {
+            if attempt > 0 {
+                log!(
+                    "Retry {}/2 at 115200 baud: re-entering bootloader...",
+                    attempt + 1
+                );
+            }
+            enter_bootloader(port.as_mut(), boot, tx)?;
+            check_stop!();
+            log!("Synchronizing with STM32 bootloader at 115200 baud...");
+            if protocol::sync(port.as_mut(), 3).is_ok() {
+                log!("Synchronized at 115200 baud!");
+                synced = true;
+                break;
+            }
+        }
+    }
+
+    if !synced {
         let hint = match boot.mode {
             IspBootMode::Manual => {
                 "Hint: ensure BOOT0=HIGH and target has been reset into ROM bootloader."
@@ -158,9 +205,8 @@ fn run_isp(
                 "Hint: try switching Auto Mode profile, check RTS->BOOT0 and DTR->RESET wiring."
             }
         };
-        anyhow::anyhow!("{} {}", e, hint)
-    })?;
-    log!("Synchronized!");
+        bail!("Sync failed after multiple retries. {}", hint);
+    }
 
     check_stop!();
 

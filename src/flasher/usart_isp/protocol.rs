@@ -1,6 +1,7 @@
 use anyhow::{bail, Context};
 /// AN3155 STM32 USART bootloader protocol implementation.
 /// All serial I/O uses the port opened by the caller (8E1 settings required).
+use serialport::ClearBuffer;
 use std::time::{Duration, Instant};
 
 const ACK: u8 = 0x79;
@@ -32,6 +33,8 @@ fn xor_checksum(data: &[u8]) -> u8 {
 /// Retries up to `retries` times with a short flush in between.
 pub fn sync(port: &mut dyn serialport::SerialPort, retries: u8) -> anyhow::Result<()> {
     for attempt in 0..=retries {
+        port.clear(ClearBuffer::Input)?;
+
         port.write_all(&[0x7F])?;
         port.flush()?;
 
