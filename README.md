@@ -42,7 +42,7 @@
 
 - 支持常见调试器（ST-Link，J-Link，DAP-Link 等）
 - 支持 `.bin` / `.hex` 格式固件
-- 自动识别连接的目标芯片
+- 手动选择调试探针，并输入目标芯片名称（如 `STM32F103C8`）
 
 ---
 
@@ -54,7 +54,7 @@
 cargo build --release
 ```
 
-产物位于 `target/release/debug-assistant.exe`。
+产物位于 `target/release/debug-assistant`（Windows 下为 `debug-assistant.exe`）。
 
 ---
 
