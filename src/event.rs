@@ -9,7 +9,6 @@ pub enum AppEvent {
     Tick,
     SerialData(Vec<u8>),
     SerialError(String),
-    SerialDisconnected,
     FlasherLog(String),
     FlasherProgress(u8),
     FlasherDone { success: bool, message: String },

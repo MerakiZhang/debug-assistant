@@ -17,6 +17,8 @@ fn main() -> anyhow::Result<()> {
     result
 }
 
+const MAX_LOG_LINES: usize = 500;
+
 fn run(terminal: &mut ratatui::DefaultTerminal) -> anyhow::Result<()> {
     let (tx, rx) = mpsc::channel::<AppEvent>();
     let mut app = RootApp::new(tx.clone());
@@ -34,7 +36,6 @@ fn run(terminal: &mut ratatui::DefaultTerminal) -> anyhow::Result<()> {
             AppEvent::Resize => {}
 
             AppEvent::SerialData(bytes) => {
-                app.serial_monitor.bytes_rx += bytes.len() as u64;
                 app.serial_monitor.push_rx(bytes);
             }
             AppEvent::SerialError(msg) => {
@@ -45,12 +46,12 @@ fn run(terminal: &mut ratatui::DefaultTerminal) -> anyhow::Result<()> {
                         .push_status(format!("Serial error: {}", msg));
                 }
             }
-            AppEvent::SerialDisconnected => {
-                app.serial_monitor.disconnect();
-            }
-
             AppEvent::FlasherLog(msg) => {
                 app.flasher.log.push(msg);
+                if app.flasher.log.len() > MAX_LOG_LINES {
+                    app.flasher.log.remove(0);
+                }
+                app.flasher.log_scroll = usize::MAX;
             }
             AppEvent::FlasherProgress(pct) => {
                 app.flasher.progress_pct = Some(pct);
@@ -58,12 +59,15 @@ fn run(terminal: &mut ratatui::DefaultTerminal) -> anyhow::Result<()> {
             AppEvent::FlasherDone { success, message } => {
                 app.flasher.op_done = true;
                 app.flasher.op_ok = success;
-                app.flasher.log.push(message);
+                if !success {
+                    app.flasher.log.push(message);
+                }
                 app.flasher.progress_pct = if success {
                     Some(100)
                 } else {
                     app.flasher.progress_pct
                 };
+                app.flasher.log_scroll = usize::MAX;
                 app.flasher.stop_flag = None;
             }
         }

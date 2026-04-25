@@ -1,6 +1,6 @@
+//! AN3155 STM32 USART bootloader protocol implementation.
+//! All serial I/O uses the port opened by the caller (8E1 settings required).
 use anyhow::{bail, Context};
-/// AN3155 STM32 USART bootloader protocol implementation.
-/// All serial I/O uses the port opened by the caller (8E1 settings required).
 use serialport::ClearBuffer;
 use std::time::{Duration, Instant};
 
@@ -38,8 +38,9 @@ pub fn sync(port: &mut dyn serialport::SerialPort, retries: u8) -> anyhow::Resul
         port.write_all(&[0x7F])?;
         port.flush()?;
 
-        // Give the bootloader up to 500 ms to respond
-        let deadline = Instant::now() + Duration::from_millis(500);
+        // Give the bootloader up to 2 s to respond; port read timeout is 500 ms so
+        // up to 4 polls can happen within this window before giving up.
+        let deadline = Instant::now() + Duration::from_millis(2000);
         loop {
             match read_byte(port) {
                 Ok(ACK) => return Ok(()),
@@ -47,10 +48,7 @@ pub fn sync(port: &mut dyn serialport::SerialPort, retries: u8) -> anyhow::Resul
                 Ok(NACK) => bail!("Bootloader returned NACK during sync"),
                 Ok(b) => bail!("Unexpected sync byte: 0x{:02X}", b),
                 Err(_) if Instant::now() < deadline => continue,
-                Err(e) if attempt < retries => {
-                    let _ = e;
-                    break;
-                }
+                Err(_) if attempt < retries => break,
                 Err(e) => return Err(e).context("Sync timeout"),
             }
         }
@@ -82,7 +80,16 @@ pub fn get_id(port: &mut dyn serialport::SerialPort) -> anyhow::Result<u16> {
 
 /// Step 3: Extended Erase — mass erase all flash pages.
 /// Uses command 0x44 with the special 0xFF 0xFF (mass erase) parameter.
-pub fn extended_erase_all(port: &mut dyn serialport::SerialPort) -> anyhow::Result<()> {
+///
+/// `tick` is called on each 500 ms poll while waiting for the ACK.
+/// Return `false` from `tick` to abort with a cancellation error.
+pub fn extended_erase_all<F>(
+    port: &mut dyn serialport::SerialPort,
+    mut tick: F,
+) -> anyhow::Result<()>
+where
+    F: FnMut() -> bool,
+{
     port.write_all(&[0x44, 0xBB])?;
     port.flush()?;
     expect_ack(port).context("ExtendedErase command rejected")?;
@@ -92,7 +99,7 @@ pub fn extended_erase_all(port: &mut dyn serialport::SerialPort) -> anyhow::Resu
     port.write_all(data)?;
     port.flush()?;
 
-    // Mass erase can take several seconds; set a generous timeout by polling with retries
+    // Poll every 500 ms (port read timeout) until ACK or 30 s deadline.
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
         match read_byte(port) {
@@ -100,9 +107,11 @@ pub fn extended_erase_all(port: &mut dyn serialport::SerialPort) -> anyhow::Resu
             Ok(NACK) => bail!("Mass erase returned NACK"),
             Ok(b) => bail!("Unexpected erase response: 0x{:02X}", b),
             Err(e) if Instant::now() < deadline => {
-                // timeout on the per-read, keep waiting
                 let kind = e.downcast_ref::<std::io::Error>().map(|e| e.kind());
                 if kind == Some(std::io::ErrorKind::TimedOut) {
+                    if !tick() {
+                        bail!("Operation cancelled by user");
+                    }
                     continue;
                 }
                 return Err(e).context("Erase error");
@@ -119,7 +128,9 @@ pub fn write_chunk(
     address: u32,
     data: &[u8],
 ) -> anyhow::Result<()> {
-    assert!(!data.is_empty() && data.len() <= 256);
+    if data.is_empty() || data.len() > 256 {
+        bail!("write_chunk: data must be 1–256 bytes (got {})", data.len());
+    }
 
     // WriteMemory command
     port.write_all(&[0x31, 0xCE])?;

@@ -205,6 +205,7 @@ impl SerialMonitorState {
     }
 
     pub fn push_rx(&mut self, data: Vec<u8>) {
+        self.bytes_rx += data.len() as u64;
         self.rx_last_data = Some(std::time::Instant::now());
         self.rx_line_buf.extend_from_slice(&data);
 
@@ -426,9 +427,6 @@ impl SerialMonitorState {
     }
 
     pub fn commit_sent_input(&mut self, sent: Vec<u8>) {
-        if self.input_buf.is_empty() {
-            return;
-        }
         let s = self.input_buf.clone();
         if self.send_history.last().map(|x| x != &s).unwrap_or(true) {
             self.send_history.push(s);

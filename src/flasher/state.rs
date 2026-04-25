@@ -1,4 +1,4 @@
-use crate::serial::BAUD_PRESETS;
+use crate::serial::ISP_BAUD_PRESETS;
 use std::sync::{atomic::AtomicBool, Arc};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -164,7 +164,7 @@ impl FlasherState {
 
             isp_port_list: Vec::new(),
             isp_port_idx: 0,
-            isp_baud_idx: 9, // 115200
+            isp_baud_idx: 7, // 115200
             isp_boot_mode: IspBootMode::Manual,
             isp_auto_profile: IspAutoProfile::Standard,
             isp_file_path: String::new(),
@@ -235,7 +235,25 @@ impl FlasherState {
     }
 
     pub fn isp_baud(&self) -> u32 {
-        BAUD_PRESETS[self.isp_baud_idx]
+        ISP_BAUD_PRESETS[self.isp_baud_idx]
+    }
+
+    pub fn isp_field_next(&mut self) {
+        self.isp_field = self.isp_field.next();
+        if self.isp_field == IspConfigField::AutoProfile
+            && self.isp_boot_mode == IspBootMode::Manual
+        {
+            self.isp_field = self.isp_field.next();
+        }
+    }
+
+    pub fn isp_field_prev(&mut self) {
+        self.isp_field = self.isp_field.prev();
+        if self.isp_field == IspConfigField::AutoProfile
+            && self.isp_boot_mode == IspBootMode::Manual
+        {
+            self.isp_field = self.isp_field.prev();
+        }
     }
 
     // Text input helpers for file path / chip name fields

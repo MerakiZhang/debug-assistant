@@ -2,7 +2,7 @@ use super::state::{
     FlasherMethod, FlasherState, FlasherSubScreen, IspBootMode, IspConfigField, JtagConfigField,
     METHOD_ITEMS,
 };
-use crate::serial::BAUD_PRESETS;
+use crate::serial::ISP_BAUD_PRESETS;
 use ratatui::{
     layout::{Alignment, Constraint, Layout, Margin},
     style::{Color, Modifier, Style},
@@ -147,7 +147,7 @@ fn render_isp_config(frame: &mut Frame, state: &FlasherState) {
         (
             IspConfigField::BaudRate,
             "Baud Rate  ",
-            BAUD_PRESETS[state.isp_baud_idx].to_string(),
+            ISP_BAUD_PRESETS[state.isp_baud_idx].to_string(),
             false,
         ),
         (
@@ -182,7 +182,11 @@ fn render_isp_config(frame: &mut Frame, state: &FlasherState) {
 
     for (i, (field, label, value, is_text)) in fields.iter().enumerate() {
         let focused = state.isp_field == *field;
-        let (style, arrow) = if focused {
+        let inactive = *field == IspConfigField::AutoProfile
+            && state.isp_boot_mode == IspBootMode::Manual;
+        let (style, arrow) = if inactive {
+            (Style::default().fg(Color::DarkGray), "    ")
+        } else if focused {
             (
                 Style::default()
                     .bg(Color::Blue)
@@ -231,7 +235,7 @@ fn render_isp_config(frame: &mut Frame, state: &FlasherState) {
 
     frame.render_widget(
         Paragraph::new(
-            "  ↑↓/Tab:Field  ←→:Change Port/Baud  Type:File path  Enter:Start  Esc:Back",
+            "  ↑↓/Tab:Field  ←→:Change option  Type:File path  Enter:Start  Esc:Back",
         )
         .style(Style::default().fg(Color::DarkGray)),
         hint_area,

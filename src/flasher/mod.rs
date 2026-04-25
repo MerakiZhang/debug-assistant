@@ -4,7 +4,7 @@ pub mod ui;
 pub mod usart_isp;
 
 pub use state::FlasherState;
-use state::{FlasherMethod, FlasherSubScreen, IspConfigField, JtagConfigField, METHOD_ITEMS};
+use state::{FlasherMethod, FlasherSubScreen, IspBootMode, IspConfigField, JtagConfigField, METHOD_ITEMS};
 
 use crate::event::AppEvent;
 use crossterm::event::{KeyCode, KeyModifiers};
@@ -83,11 +83,11 @@ fn handle_isp_config(
         }
         (KeyCode::Char('q'), KeyModifiers::NONE) => Action::Quit,
         (KeyCode::Up, _) | (KeyCode::BackTab, _) => {
-            state.isp_field = state.isp_field.prev();
+            state.isp_field_prev();
             Action::None
         }
         (KeyCode::Down, _) | (KeyCode::Tab, KeyModifiers::NONE) => {
-            state.isp_field = state.isp_field.next();
+            state.isp_field_next();
             Action::None
         }
         (KeyCode::Left, _) => {
@@ -137,9 +137,9 @@ fn cycle_isp_option(state: &mut FlasherState, forward: bool) {
         }
         IspConfigField::BaudRate => {
             if forward {
-                state.isp_baud_idx = (state.isp_baud_idx + 1) % crate::serial::BAUD_PRESETS.len();
+                state.isp_baud_idx = (state.isp_baud_idx + 1) % crate::serial::ISP_BAUD_PRESETS.len();
             } else if state.isp_baud_idx == 0 {
-                state.isp_baud_idx = crate::serial::BAUD_PRESETS.len() - 1;
+                state.isp_baud_idx = crate::serial::ISP_BAUD_PRESETS.len() - 1;
             } else {
                 state.isp_baud_idx -= 1;
             }
@@ -152,11 +152,13 @@ fn cycle_isp_option(state: &mut FlasherState, forward: bool) {
             };
         }
         IspConfigField::AutoProfile => {
-            state.isp_auto_profile = if forward {
-                state.isp_auto_profile.next()
-            } else {
-                state.isp_auto_profile.prev()
-            };
+            if state.isp_boot_mode == IspBootMode::Auto {
+                state.isp_auto_profile = if forward {
+                    state.isp_auto_profile.next()
+                } else {
+                    state.isp_auto_profile.prev()
+                };
+            }
         }
         IspConfigField::FilePath => {}
     }

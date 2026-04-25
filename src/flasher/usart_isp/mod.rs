@@ -133,6 +133,17 @@ fn run_isp(
         };
     }
 
+    log!("Loading firmware: {}", file_path);
+    let firmware = load_firmware_image(file_path)?;
+    log!(
+        "Parsed {} image: {} bytes across {} segment(s)",
+        firmware.kind_label,
+        firmware.total_bytes,
+        firmware.segments.len()
+    );
+
+    check_stop!();
+
     log!("Opening {} at {} baud (8E1)...", port_name, baud_rate);
     let mut port: Box<dyn SerialPort> = serialport::new(port_name, baud_rate)
         .data_bits(serialport::DataBits::Eight)
@@ -150,50 +161,54 @@ fn run_isp(
 
     let mut synced = false;
 
-    // Phase 1: try up to 2 times at the user-selected baud rate
-    for attempt in 0..2 {
-        if attempt > 0 {
-            log!(
-                "Retry {}/2 at {} baud: re-entering bootloader...",
-                attempt + 1,
-                baud_rate
-            );
-            enter_bootloader(port.as_mut(), boot, tx)?;
-            check_stop!();
-        }
+    // Find the selected baud rate in ISP_BAUD_PRESETS and step down on failure.
+    // Each rate gets 2 attempts; on failure the port steps to the next lower rate.
+    let start_idx = crate::serial::ISP_BAUD_PRESETS
+        .iter()
+        .position(|&b| b == baud_rate)
+        .unwrap_or(0);
 
-        log!("Synchronizing with STM32 bootloader at {} baud...", baud_rate);
-        if protocol::sync(port.as_mut(), 3).is_ok() {
-            log!("Synchronized at {} baud!", baud_rate);
-            synced = true;
-            break;
-        }
-    }
+    'sync: for rate_idx in (0..=start_idx).rev() {
+        let try_baud = crate::serial::ISP_BAUD_PRESETS[rate_idx];
+        let is_first_rate = rate_idx == start_idx;
 
-    // Phase 2: fall back to 115200 if still not synced
-    if !synced && baud_rate > 115200 {
-        log!(
-            "Baud rate {} baud is unstable, falling back to 115200 baud...",
-            baud_rate
-        );
-        port.set_baud_rate(115200)?;
+        if !is_first_rate {
+            log!("Stepping down to {} baud...", try_baud);
+            port.set_baud_rate(try_baud)?;
+        }
 
         for attempt in 0..2 {
-            if attempt > 0 {
-                log!(
-                    "Retry {}/2 at 115200 baud: re-entering bootloader...",
-                    attempt + 1
-                );
-            }
-            enter_bootloader(port.as_mut(), boot, tx)?;
             check_stop!();
-            log!("Synchronizing with STM32 bootloader at 115200 baud...");
+
+            // Bootloader was already entered before this loop for the first rate,
+            // first attempt. Every other case needs a fresh entry.
+            if !is_first_rate || attempt > 0 {
+                if attempt > 0 {
+                    log!(
+                        "Retry {}/2 at {} baud: re-entering bootloader...",
+                        attempt + 1,
+                        try_baud
+                    );
+                } else {
+                    log!("Entering bootloader at {} baud...", try_baud);
+                }
+                enter_bootloader(port.as_mut(), boot, tx)?;
+                check_stop!();
+            }
+
+            log!(
+                "Synchronizing at {} baud (attempt {}/2)...",
+                try_baud,
+                attempt + 1
+            );
             if protocol::sync(port.as_mut(), 3).is_ok() {
-                log!("Synchronized at 115200 baud!");
+                log!("Synchronized at {} baud!", try_baud);
                 synced = true;
-                break;
+                break 'sync;
             }
         }
+
+        log!("Sync failed at {} baud.", try_baud);
     }
 
     if !synced {
@@ -215,21 +230,11 @@ fn run_isp(
 
     check_stop!();
 
-    log!("Loading firmware: {}", file_path);
-    let firmware = load_firmware_image(file_path)?;
-    log!(
-        "Parsed {} image: {} bytes across {} segment(s)",
-        firmware.kind_label,
-        firmware.total_bytes,
-        firmware.segments.len()
-    );
-
-    check_stop!();
-
     log!("Erasing flash (mass erase)...");
-    port.set_timeout(Duration::from_secs(35)).ok();
-    protocol::extended_erase_all(port.as_mut())?;
-    port.set_timeout(Duration::from_millis(500)).ok();
+    protocol::extended_erase_all(port.as_mut(), || {
+        tx.send(AppEvent::FlasherProgress(5)).ok();
+        !stop_flag.load(Ordering::Relaxed)
+    })?;
     log!("Erase complete");
     tx.send(AppEvent::FlasherProgress(10)).ok();
 

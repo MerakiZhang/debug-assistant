@@ -32,6 +32,12 @@ pub const BAUD_PRESETS: &[u32] = &[
     300, 600, 1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600,
 ];
 
+/// AN3155 valid baud rates for STM32 USART bootloader (1200–460800).
+/// 300/600 are below the spec minimum; 921600 is unreliable with auto-baud detection.
+pub const ISP_BAUD_PRESETS: &[u32] = &[
+    1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200, 230400, 460800,
+];
+
 pub const DATA_BITS_OPTIONS: &[DataBits] = &[
     DataBits::Five,
     DataBits::Six,
@@ -115,10 +121,7 @@ pub fn spawn_serial_threads(
                 break;
             }
             match port.read(&mut buf) {
-                Ok(0) => {
-                    tx_r.send(AppEvent::SerialDisconnected).ok();
-                    break;
-                }
+                Ok(n) if n == 0 => continue,
                 Ok(n) => {
                     tx_r.send(AppEvent::SerialData(buf[..n].to_vec())).ok();
                 }
@@ -133,14 +136,10 @@ pub fn spawn_serial_threads(
 
     // Writer thread
     let (write_tx, write_rx) = std::sync::mpsc::channel::<Vec<u8>>();
-    let stop_w = stop.clone();
     let tx_w = event_tx;
     std::thread::spawn(move || {
         let mut port = writer_port;
         while let Ok(bytes) = write_rx.recv() {
-            if stop_w.load(Ordering::Relaxed) {
-                break;
-            }
             if let Err(e) = port.write_all(&bytes) {
                 tx_w.send(AppEvent::SerialError(e.to_string())).ok();
                 break;

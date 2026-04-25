@@ -52,17 +52,6 @@ pub fn list_probes() -> Vec<String> {
 }
 
 pub fn start_flash(state: &mut FlasherState, tx: mpsc::Sender<AppEvent>) -> anyhow::Result<()> {
-    let probes = Lister::new().list_all();
-    if probes.is_empty() {
-        bail!("No debug probes found. Check USB connection and drivers.");
-    }
-    if state.jtag_probe_idx >= probes.len() {
-        bail!(
-            "Selected probe index is out of range (found {} probes)",
-            probes.len()
-        );
-    }
-
     let chip_name = state.jtag_chip_name.trim().to_string();
     if chip_name.is_empty() {
         bail!("Chip name is empty (example: STM32F103C8)");
@@ -70,11 +59,12 @@ pub fn start_flash(state: &mut FlasherState, tx: mpsc::Sender<AppEvent>) -> anyh
 
     let file_path = state.jtag_file_path.trim().to_string();
     validate_firmware_path(&file_path)?;
+    let format = detect_file_kind(&file_path).unwrap();
 
     let stop_flag = Arc::new(AtomicBool::new(false));
     state.stop_flag = Some(stop_flag.clone());
 
-    spawn_jtag_thread(state.jtag_probe_idx, chip_name, file_path, tx, stop_flag);
+    spawn_jtag_thread(state.jtag_probe_idx, chip_name, file_path, format, tx, stop_flag);
     Ok(())
 }
 
@@ -82,11 +72,12 @@ fn spawn_jtag_thread(
     probe_idx: usize,
     chip_name: String,
     file_path: String,
+    format: flashing::FormatKind,
     tx: mpsc::Sender<AppEvent>,
     stop_flag: Arc<AtomicBool>,
 ) {
     std::thread::spawn(move || {
-        let result = run_jtag(probe_idx, &chip_name, &file_path, &tx, &stop_flag);
+        let result = run_jtag(probe_idx, &chip_name, &file_path, format, &tx, &stop_flag);
         match result {
             Ok(()) => {
                 send_done(&tx, true, "Flash complete!".into());
@@ -102,6 +93,7 @@ fn run_jtag(
     probe_idx: usize,
     chip_name: &str,
     file_path: &str,
+    format: flashing::FormatKind,
     tx: &mpsc::Sender<AppEvent>,
     stop_flag: &AtomicBool,
 ) -> anyhow::Result<()> {
@@ -145,9 +137,7 @@ fn run_jtag(
     tx.send(AppEvent::FlasherProgress(30)).ok();
 
     check_stop!();
-    log!("Flashing {}...", file_path);
-    let format = detect_file_kind(file_path)
-        .ok_or_else(|| anyhow::anyhow!("Unsupported file extension: {}", file_path))?;
+    log!("Flashing {}... (Esc takes effect after this step completes)", file_path);
     flashing::download_file(&mut session, Path::new(file_path), format)
         .context("JTAG/SWD flash failed")?;
 
