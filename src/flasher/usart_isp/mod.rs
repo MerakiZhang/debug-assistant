@@ -38,6 +38,39 @@ struct IspBootConfig {
     auto_profile: IspAutoProfile,
 }
 
+struct SessionLogGuard {
+    tx: mpsc::Sender<AppEvent>,
+    port_name: String,
+    active: bool,
+}
+
+impl SessionLogGuard {
+    fn new(tx: mpsc::Sender<AppEvent>, port_name: String) -> Self {
+        Self {
+            tx,
+            port_name,
+            active: false,
+        }
+    }
+
+    fn mark_open(&mut self) {
+        self.active = true;
+    }
+}
+
+impl Drop for SessionLogGuard {
+    fn drop(&mut self) {
+        if self.active {
+            self.tx
+                .send(AppEvent::FlasherLog(format!(
+                    "Serial session closed on {}.",
+                    self.port_name
+                )))
+                .ok();
+        }
+    }
+}
+
 fn is_supported_file(file_path: &str) -> bool {
     let lower = file_path.to_ascii_lowercase();
     lower.ends_with(".bin") || lower.ends_with(".hex")
@@ -133,6 +166,8 @@ fn run_isp(
         };
     }
 
+    let mut session_guard = SessionLogGuard::new(tx.clone(), port_name.to_string());
+
     log!("Loading firmware: {}", file_path);
     let firmware = load_firmware_image(file_path)?;
     log!(
@@ -149,9 +184,12 @@ fn run_isp(
         .data_bits(serialport::DataBits::Eight)
         .parity(serialport::Parity::Even)
         .stop_bits(serialport::StopBits::One)
+        .flow_control(serialport::FlowControl::None)
         .timeout(Duration::from_millis(500))
         .open()
         .context("Failed to open serial port")?;
+    session_guard.mark_open();
+    log!("Serial session opened on {}.", port_name);
 
     check_stop!();
 
@@ -159,7 +197,7 @@ fn run_isp(
 
     check_stop!();
 
-    let mut synced = false;
+    let mut erase_done = false;
 
     // Find the selected baud rate in ISP_BAUD_PRESETS and step down on failure.
     // Each rate gets 2 attempts; on failure the port steps to the next lower rate.
@@ -203,15 +241,49 @@ fn run_isp(
             );
             if protocol::sync(port.as_mut(), 3).is_ok() {
                 log!("Synchronized at {} baud!", try_baud);
-                synced = true;
-                break 'sync;
+
+                match protocol::get_id(port.as_mut()) {
+                    Ok(id) => {
+                        log!("Chip ID: 0x{:04X}", id);
+
+                        check_stop!();
+
+                        log!("Erasing flash (mass erase)...");
+                        match protocol::extended_erase_all(port.as_mut(), || {
+                            tx.send(AppEvent::FlasherProgress(5)).ok();
+                            !stop_flag.load(Ordering::Relaxed)
+                        }) {
+                            Ok(()) => {
+                                log!("Erase complete");
+                                tx.send(AppEvent::FlasherProgress(10)).ok();
+                                erase_done = true;
+                                break 'sync;
+                            }
+                            Err(err) if err.to_string().contains("ExtendedErase command rejected") => {
+                                log!(
+                                    "ExtendedErase setup failed at {} baud: {}. Re-entering bootloader or stepping down.",
+                                    try_baud,
+                                    err
+                                );
+                            }
+                            Err(err) => return Err(err),
+                        }
+                    }
+                    Err(err) => {
+                        log!(
+                            "GetID failed at {} baud: {}. Re-entering bootloader or stepping down.",
+                            try_baud,
+                            err
+                        );
+                    }
+                }
             }
         }
 
-        log!("Sync failed at {} baud.", try_baud);
+        log!("Sync/GetID/erase-setup failed at {} baud.", try_baud);
     }
 
-    if !synced {
+    if !erase_done {
         let hint = match boot.mode {
             IspBootMode::Manual => {
                 "Hint: ensure BOOT0=HIGH and target has been reset into ROM bootloader."
@@ -220,23 +292,10 @@ fn run_isp(
                 "Hint: try switching Auto Mode profile, check RTS->BOOT0 and DTR->RESET wiring."
             }
         };
-        bail!("Sync failed after multiple retries. {}", hint);
+        bail!("Sync/GetID/erase-setup failed after multiple retries. {}", hint);
     }
 
     check_stop!();
-
-    let chip_id = protocol::get_id(port.as_mut())?;
-    log!("Chip ID: 0x{:04X}", chip_id);
-
-    check_stop!();
-
-    log!("Erasing flash (mass erase)...");
-    protocol::extended_erase_all(port.as_mut(), || {
-        tx.send(AppEvent::FlasherProgress(5)).ok();
-        !stop_flag.load(Ordering::Relaxed)
-    })?;
-    log!("Erase complete");
-    tx.send(AppEvent::FlasherProgress(10)).ok();
 
     check_stop!();
 

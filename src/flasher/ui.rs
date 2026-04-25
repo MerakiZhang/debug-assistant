@@ -415,6 +415,7 @@ fn render_progress(frame: &mut Frame, state: &FlasherState) {
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::DarkGray));
     let log_inner = log_block.inner(log_area);
+    state.log_visible_rows.set(log_inner.height);
     let visible = log_inner.height as usize;
 
     let log_lines: Vec<Line<'static>> = state
@@ -480,9 +481,11 @@ fn render_progress(frame: &mut Frame, state: &FlasherState) {
     frame.render_widget(gauge, gauge_area);
 
     let hint = if state.op_done {
-        "  Esc: Back to config"
+        "  Up/Down/PgUp/PgDn/Home/End: Scroll log  Esc: Back to config"
+    } else if state.cancel_armed {
+        "  Up/Down/PgUp/PgDn/Home/End: Scroll log  Esc: Confirm cancel"
     } else {
-        "  Esc: Cancel operation"
+        "  Up/Down/PgUp/PgDn/Home/End: Scroll log  Esc: Arm cancel"
     };
     frame.render_widget(
         Paragraph::new(hint).style(Style::default().fg(Color::DarkGray)),

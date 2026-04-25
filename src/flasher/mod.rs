@@ -7,6 +7,7 @@ pub use state::FlasherState;
 use state::{FlasherMethod, FlasherSubScreen, IspBootMode, IspConfigField, JtagConfigField, METHOD_ITEMS};
 
 use crate::event::AppEvent;
+use crate::serial_monitor::SerialMonitorState;
 use crossterm::event::{KeyCode, KeyModifiers};
 use std::sync::mpsc;
 
@@ -25,11 +26,12 @@ pub fn handle_key(
     state: &mut FlasherState,
     code: KeyCode,
     mods: KeyModifiers,
+    serial_monitor: Option<&mut SerialMonitorState>,
     tx: mpsc::Sender<AppEvent>,
 ) -> Action {
     match state.sub_screen {
         FlasherSubScreen::MethodSelect => handle_method_select(state, code),
-        FlasherSubScreen::Config => handle_config(state, code, mods, tx),
+        FlasherSubScreen::Config => handle_config(state, code, mods, serial_monitor, tx),
         FlasherSubScreen::Progress => handle_progress(state, code),
     }
 }
@@ -62,10 +64,11 @@ fn handle_config(
     state: &mut FlasherState,
     code: KeyCode,
     mods: KeyModifiers,
+    serial_monitor: Option<&mut SerialMonitorState>,
     tx: mpsc::Sender<AppEvent>,
 ) -> Action {
     match state.method {
-        FlasherMethod::UsartIsp => handle_isp_config(state, code, mods, tx),
+        FlasherMethod::UsartIsp => handle_isp_config(state, code, mods, serial_monitor, tx),
         FlasherMethod::JtagSwd => handle_jtag_config(state, code, mods, tx),
     }
 }
@@ -74,6 +77,7 @@ fn handle_isp_config(
     state: &mut FlasherState,
     code: KeyCode,
     mods: KeyModifiers,
+    serial_monitor: Option<&mut SerialMonitorState>,
     tx: mpsc::Sender<AppEvent>,
 ) -> Action {
     match (code, mods) {
@@ -109,7 +113,25 @@ fn handle_isp_config(
             Action::None
         }
         (KeyCode::Enter, _) => {
+            let mut preflight_log = None;
+            state.clear_serial_monitor_restore();
+            if let Some(port_name) = selected_isp_port_name(state).map(str::to_string) {
+                if let Some(serial_monitor) = serial_monitor {
+                    if serial_monitor.connected && serial_monitor.serial_config.port_name == port_name {
+                        state.plan_serial_monitor_restore(serial_monitor.serial_config.clone());
+                        serial_monitor.disconnect();
+                        preflight_log = Some(format!(
+                            "Disconnected serial monitor from {} before flashing.",
+                            port_name
+                        ));
+                    }
+                }
+            }
+
             state.enter_progress();
+            if let Some(message) = preflight_log {
+                state.log.push(message);
+            }
             if let Err(e) = usart_isp::start_flash(state, tx) {
                 state.log.push(format!("Error: {}", e));
                 state.op_done = true;
@@ -119,6 +141,14 @@ fn handle_isp_config(
         }
         _ => Action::None,
     }
+}
+
+fn selected_isp_port_name(state: &FlasherState) -> Option<&str> {
+    state
+        .isp_port_list
+        .get(state.isp_port_idx)
+        .map(String::as_str)
+        .filter(|name| *name != "(no ports found)")
 }
 
 fn cycle_isp_option(state: &mut FlasherState, forward: bool) {
@@ -230,11 +260,25 @@ fn handle_jtag_config(
 }
 
 fn handle_progress(state: &mut FlasherState, code: KeyCode) -> Action {
+    let visible = state.log_visible_rows.get() as usize;
     match code {
         KeyCode::Esc => {
+            if state.op_done {
+                state.cancel_armed = false;
+                state.sub_screen = FlasherSubScreen::Config;
+                return Action::None;
+            }
+
+            if !state.cancel_armed {
+                state.cancel_armed = true;
+                state.log.push("Press Esc again to cancel flashing.".into());
+                return Action::None;
+            }
+
             if let Some(flag) = state.stop_flag.take() {
                 flag.store(true, std::sync::atomic::Ordering::Relaxed);
             }
+            state.cancel_armed = false;
             state.sub_screen = FlasherSubScreen::Config;
             Action::None
         }
@@ -242,18 +286,42 @@ fn handle_progress(state: &mut FlasherState, code: KeyCode) -> Action {
             if let Some(flag) = state.stop_flag.take() {
                 flag.store(true, std::sync::atomic::Ordering::Relaxed);
             }
+            state.cancel_armed = false;
             Action::Quit
         }
         KeyCode::Up => {
-            state.log_scroll = state.log_scroll.saturating_sub(1);
+            state.cancel_armed = false;
+            state.scroll_log_up(1);
             Action::None
         }
         KeyCode::Down => {
-            if state.log_scroll + 1 < state.log.len() {
-                state.log_scroll += 1;
-            }
+            state.cancel_armed = false;
+            state.scroll_log_down(1);
             Action::None
         }
-        _ => Action::None,
+        KeyCode::PageUp => {
+            state.cancel_armed = false;
+            state.scroll_log_up(visible.saturating_sub(1));
+            Action::None
+        }
+        KeyCode::PageDown => {
+            state.cancel_armed = false;
+            state.scroll_log_down(visible.saturating_sub(1));
+            Action::None
+        }
+        KeyCode::Home => {
+            state.cancel_armed = false;
+            state.scroll_log_home();
+            Action::None
+        }
+        KeyCode::End => {
+            state.cancel_armed = false;
+            state.scroll_log_end();
+            Action::None
+        }
+        _ => {
+            state.cancel_armed = false;
+            Action::None
+        }
     }
 }

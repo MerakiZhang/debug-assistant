@@ -1,75 +1,102 @@
 # Debug Assistant
 
-基于终端的串口调试 & STM32 固件下载工具，使用 Rust 编写。
+基于终端的串口调试与 STM32 固件下载工具，使用 Rust 编写。
 
-启动后进入主菜单，按方向键选择工具，**Enter** 进入：
+启动后进入主菜单，按方向键选择工具，按 `Enter` 进入：
 
 ![主界面](images/主界面.png)
 
-| 项目 | 说明 |
+| 工具 | 用途 |
 |------|------|
 | **Serial Monitor** | 串口调试终端 |
-| **STM32 Flasher** | STM32 固件下载（USART ISP / JTAG-SWD） |
+| **STM32 Flasher** | STM32 固件下载 |
 
 ---
 
-## Serial Monitor — 串口调试
+## 功能概览
 
-- 串口参数配置：端口、波特率（300–921600）、数据位、停止位、校验位、流控
-- 接收显示：ASCII / HEX / 双栏（HEX + ASCII）三种模式，带毫秒时间戳
-- 中英文正确显示，无效字节以 `\xNN` 标注
-- 行缓冲接收：按换行符聚合，100 ms 超时自动刷新
-- 发送：支持发送历史（↑/↓），可追加换行后缀（None / CR / LF / CRLF）
-- HEX 发送模式：输入 `48 65 6C 6C 6F` 直接发送字节
-- 滚动日志，自动跟随，TX/RX 字节计数
+- 串口调试：手动连接和断开串口，查看设备输出并发送数据
+- 多种显示方式：支持 ASCII、HEX、双栏显示
+- 发送辅助：支持发送历史、换行后缀、HEX 发送模式
+- STM32 下载：支持串口下载和 JTAG/SWD 下载
+- 固件格式：支持 `.bin` 和 `.hex`
+- 下载反馈：显示操作日志、进度和结果状态
 
 ---
 
-## STM32 Flasher — 固件下载
+## Serial Monitor
+
+用于串口调试和日常通信测试，支持：
+
+- 手动选择串口参数并连接
+- 手动断开串口连接
+- 查看设备输出
+- 发送文本数据或 HEX 数据
+- 切换显示模式（ASCII / HEX / BOTH）
+- 查看带时间戳的收发日志
+- 查看发送和接收字节统计
+- 滚动查看历史数据
+
+如果串口通信过程中出现异常，程序会自动断开并给出状态提示。
+
+---
+
+## STM32 Flasher
+
+用于 STM32 固件下载，支持两种方式：
 
 ### USART ISP（串口下载）
 
-通过 STM32 系统存储区 Bootloader（AN3155 协议）下载固件，无需外置调试器：
-
-- 支持 `.bin` / `.hex` 格式固件
-- 波特率：1200–460800（AN3155 规范范围；同步失败后自动从选定波特率逐级降速，每级重试 2 次）
-- 启动模式：
-  - **Manual**：手动设置 BOOT0=HIGH 并复位芯片
-  - **Auto**：通过 RTS→BOOT0、DTR→RESET 自动控制（支持 Standard / Inverted 两种电平配置）
-- 流程：同步 → 读取芯片 ID → 全片擦除 → 写入固件（256 字节/块） → 跳转至 0x08000000
+- 选择串口和固件文件后即可开始下载
+- 支持 `.bin` / `.hex` 固件
+- 支持手动和自动两种进入下载模式的方式
+- 下载过程中显示操作日志和进度
+- 下载完成后自动结束下载会话并启动程序
+- 如果串口调试模块正在占用同一个端口，程序会自动处理端口切换，并在下载结束后恢复串口调试连接
 
 ### JTAG / SWD（调试探针下载）
 
-通过 probe-rs 支持的调试探针下载固件：
-
-- 支持常见调试器（ST-Link，J-Link，DAP-Link 等）
-- 支持 `.bin` / `.hex` 格式固件
-- 手动选择调试探针，并输入目标芯片名称（如 `STM32F103C8`）
+- 选择调试探针后即可下载固件
+- 支持 `.bin` / `.hex` 固件
+- 需要输入目标芯片名称
+- 下载过程中显示操作日志和进度
 
 ---
 
 ## 构建
 
-需要 Rust 工具链（1.75+）：
+需要安装 Rust 稳定版工具链与 Cargo：
 
 ```bash
 cargo build --release
 ```
 
-产物位于 `target/release/debug-assistant`（Windows 下为 `debug-assistant.exe`）。
+Windows 下生成的可执行文件位于：
+
+- `target/release/debug-assistant.exe`
 
 ---
 
-## 使用
+## 运行
+
+开发运行：
 
 ```bash
 cargo run --release
 ```
 
+也可以先构建，再直接运行：
+
+- `target/release/debug-assistant.exe`
+
+---
+
+## 使用
+
 启动后进入 Home 主菜单：
 
-1. **↑ / ↓** 选择工具
-2. **Enter** 进入
+1. `↑ / ↓` 选择工具
+2. `Enter` 进入
 
 ### Serial Monitor 快捷键
 
@@ -78,7 +105,7 @@ cargo run --release
 | 按键 | 功能 |
 |------|------|
 | F1 | 打开帮助（任意键关闭） |
-| F2 | 串口配置 / 连接 |
+| F2 | 打开串口配置 |
 | F3 | 清除接收日志 |
 | F4 | 切换显示模式（ASCII → HEX → BOTH） |
 | F5 | 切换自动滚动 |
@@ -114,7 +141,7 @@ cargo run --release
 | ↓ / Tab | 下一个配置项 |
 | ↑ / Shift+Tab | 上一个配置项 |
 | ← / → | 修改当前值 |
-| Enter | 应用并连接 |
+| Enter | 应用配置并连接 |
 | Esc | 取消 |
 
 ### STM32 Flasher 快捷键
@@ -127,23 +154,34 @@ cargo run --release
 | Enter | 进入配置 |
 | Esc | 返回主菜单 |
 
-#### 配置界面
+#### USART ISP 配置界面
 
 | 按键 | 功能 |
 |------|------|
 | ↓ / Tab | 下一个配置项 |
 | ↑ / Shift+Tab | 上一个配置项 |
-| ← / → | 修改当前值（端口、波特率、启动模式等） |
+| ← / → | 修改端口、波特率和下载模式等选项 |
 | Backspace | 删除文件路径字符 |
 | Enter | 开始下载 |
 | Esc | 返回方法选择 |
 
-#### 进度界面
+#### JTAG / SWD 配置界面
+
+| 按键 | 功能 |
+|------|------|
+| ↓ / Tab | 下一个配置项 |
+| ↑ / Shift+Tab | 上一个配置项 |
+| ← / → | 切换调试探针 |
+| Backspace | 删除芯片名或文件路径字符 |
+| Enter | 开始下载 |
+| Esc | 返回方法选择 |
+
+#### 下载进度界面
 
 | 按键 | 功能 |
 |------|------|
 | ↑ / ↓ | 滚动日志 |
-| Esc | 停止下载并返回配置 |
+| Esc | 请求取消当前操作并返回配置界面 |
 | q | 退出程序 |
 
 ---
@@ -159,8 +197,8 @@ cargo run --release
 | [unicode-width](https://github.com/unicode-rs/unicode-width) | 中文宽字符光标定位 |
 | [anyhow](https://github.com/dtolnay/anyhow) | 错误处理 |
 | [tui-big-text](https://github.com/joshka/tui-big-text) | 大号标题文字 |
-| [probe-rs](https://github.com/probe-rs/probe-rs) | JTAG/SWD 调试探针通信 |
-| [ihex](https://github.com/mciantyre/ihex) | Intel HEX 文件解析 |
+| [probe-rs](https://github.com/probe-rs/probe-rs) | 调试探针通信 |
+| [ihex](https://github.com/mciantyre/ihex) | HEX 文件解析 |
 
 ---
 

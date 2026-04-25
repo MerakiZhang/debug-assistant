@@ -1,5 +1,12 @@
-use crate::serial::ISP_BAUD_PRESETS;
+use crate::serial::{SerialConfig, ISP_BAUD_PRESETS};
+use std::cell::Cell;
 use std::sync::{atomic::AtomicBool, Arc};
+
+#[derive(Debug, Clone)]
+pub struct SerialMonitorRestore {
+    pub port_name: String,
+    pub serial_config: SerialConfig,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FlasherMethod {
@@ -149,10 +156,13 @@ pub struct FlasherState {
     // Progress
     pub log: Vec<String>,
     pub log_scroll: usize,
+    pub log_visible_rows: Cell<u16>,
     pub progress_pct: Option<u8>,
     pub op_done: bool,
     pub op_ok: bool,
+    pub cancel_armed: bool,
     pub stop_flag: Option<Arc<AtomicBool>>,
+    pub serial_monitor_restore: Option<SerialMonitorRestore>,
 }
 
 impl FlasherState {
@@ -181,10 +191,13 @@ impl FlasherState {
 
             log: Vec::new(),
             log_scroll: 0,
+            log_visible_rows: Cell::new(20),
             progress_pct: None,
             op_done: false,
             op_ok: false,
+            cancel_armed: false,
             stop_flag: None,
+            serial_monitor_restore: None,
         }
     }
 
@@ -231,11 +244,46 @@ impl FlasherState {
         self.progress_pct = None;
         self.op_done = false;
         self.op_ok = false;
+        self.cancel_armed = false;
         self.stop_flag = None;
+    }
+
+    pub fn plan_serial_monitor_restore(&mut self, serial_config: SerialConfig) {
+        self.serial_monitor_restore = Some(SerialMonitorRestore {
+            port_name: serial_config.port_name.clone(),
+            serial_config,
+        });
+    }
+
+    pub fn clear_serial_monitor_restore(&mut self) {
+        self.serial_monitor_restore = None;
+    }
+
+    pub fn take_serial_monitor_restore(&mut self) -> Option<SerialMonitorRestore> {
+        self.serial_monitor_restore.take()
     }
 
     pub fn isp_baud(&self) -> u32 {
         ISP_BAUD_PRESETS[self.isp_baud_idx]
+    }
+
+    pub fn scroll_log_up(&mut self, n: usize) {
+        self.log_scroll = self.log_scroll.saturating_sub(n);
+    }
+
+    pub fn scroll_log_down(&mut self, n: usize) {
+        let visible = self.log_visible_rows.get() as usize;
+        let max_scroll = self.log.len().saturating_sub(visible);
+        self.log_scroll = (self.log_scroll + n).min(max_scroll);
+    }
+
+    pub fn scroll_log_home(&mut self) {
+        self.log_scroll = 0;
+    }
+
+    pub fn scroll_log_end(&mut self) {
+        let visible = self.log_visible_rows.get() as usize;
+        self.log_scroll = self.log.len().saturating_sub(visible);
     }
 
     pub fn isp_field_next(&mut self) {

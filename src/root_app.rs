@@ -62,6 +62,7 @@ impl RootApp {
                     && !self.serial_monitor.show_config
                     && !self.serial_monitor.show_help
                 {
+                    self.serial_monitor.disconnect();
                     self.current_screen = Screen::Home;
                     return Ok(());
                 }
@@ -77,8 +78,13 @@ impl RootApp {
             }
 
             Screen::Flasher => {
-                let action =
-                    flasher::handle_key(&mut self.flasher, code, mods, self.event_tx.clone());
+                let action = flasher::handle_key(
+                    &mut self.flasher,
+                    code,
+                    mods,
+                    Some(&mut self.serial_monitor),
+                    self.event_tx.clone(),
+                );
                 match action {
                     flasher::Action::GoHome => self.current_screen = Screen::Home,
                     flasher::Action::Quit => self.should_quit = true,

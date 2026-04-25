@@ -130,6 +130,7 @@ pub struct SerialMonitorState {
     pub serial_config: SerialConfig,
     pub serial_tx: Option<Sender<Vec<u8>>>,
     pub stop_flag: Option<Arc<AtomicBool>>,
+    pub reader_thread: Option<std::thread::JoinHandle<()>>,
     // receive
     pub log: Vec<LogEntry>,
     pub log_scroll: usize,
@@ -173,6 +174,7 @@ impl SerialMonitorState {
             serial_config: SerialConfig::default(),
             serial_tx: None,
             stop_flag: None,
+            reader_thread: None,
             log: Vec::new(),
             log_scroll: 0,
             auto_scroll: true,
@@ -376,9 +378,11 @@ impl SerialMonitorState {
     }
 
     pub fn connect(&mut self, event_tx: Sender<AppEvent>) -> anyhow::Result<()> {
-        let (write_tx, stop) = crate::serial::spawn_serial_threads(&self.serial_config, event_tx)?;
+        let (write_tx, stop, reader_handle) =
+            crate::serial::spawn_serial_threads(&self.serial_config, event_tx)?;
         self.serial_tx = Some(write_tx);
         self.stop_flag = Some(stop);
+        self.reader_thread = Some(reader_handle);
         self.connected = true;
         let msg = format!(
             "Connected: {} @ {} baud",
@@ -399,6 +403,10 @@ impl SerialMonitorState {
                 flag.store(true, Ordering::Relaxed);
             }
             self.serial_tx = None;
+            // Wait for reader thread to exit so the serial port is fully released
+            if let Some(handle) = self.reader_thread.take() {
+                let _ = handle.join();
+            }
             if show_status {
                 self.push_status("Disconnected".to_string());
             }

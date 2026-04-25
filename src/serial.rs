@@ -98,7 +98,11 @@ pub fn flow_control_label(f: FlowControl) -> &'static str {
 pub fn spawn_serial_threads(
     config: &SerialConfig,
     event_tx: Sender<AppEvent>,
-) -> anyhow::Result<(Sender<Vec<u8>>, Arc<AtomicBool>)> {
+) -> anyhow::Result<(
+    Sender<Vec<u8>>,
+    Arc<AtomicBool>,
+    std::thread::JoinHandle<()>,
+)> {
     let port = serialport::new(&config.port_name, config.baud_rate)
         .data_bits(config.data_bits)
         .stop_bits(config.stop_bits)
@@ -113,7 +117,7 @@ pub fn spawn_serial_threads(
     // Reader thread
     let stop_r = stop.clone();
     let tx_r = event_tx.clone();
-    std::thread::spawn(move || {
+    let reader_handle = std::thread::spawn(move || {
         let mut port = port;
         let mut buf = [0u8; 1024];
         loop {
@@ -147,5 +151,5 @@ pub fn spawn_serial_threads(
         }
     });
 
-    Ok((write_tx, stop))
+    Ok((write_tx, stop, reader_handle))
 }

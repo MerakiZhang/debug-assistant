@@ -59,6 +59,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal) -> anyhow::Result<()> {
             AppEvent::FlasherDone { success, message } => {
                 app.flasher.op_done = true;
                 app.flasher.op_ok = success;
+                app.flasher.cancel_armed = false;
                 if !success {
                     app.flasher.log.push(message);
                 }
@@ -69,6 +70,30 @@ fn run(terminal: &mut ratatui::DefaultTerminal) -> anyhow::Result<()> {
                 };
                 app.flasher.log_scroll = usize::MAX;
                 app.flasher.stop_flag = None;
+
+                if let Some(restore) = app.flasher.take_serial_monitor_restore() {
+                    app.serial_monitor.serial_config = restore.serial_config.clone();
+                    match app.serial_monitor.connect(app.event_tx.clone()) {
+                        Ok(()) => {
+                            let restore_msg =
+                                format!("Restored serial monitor on {}.", restore.port_name);
+                            app.serial_monitor.push_status(restore_msg.clone());
+                            app.flasher.log.push(restore_msg);
+                        }
+                        Err(e) => {
+                            let restore_msg = format!(
+                                "Failed to restore serial monitor on {}: {}",
+                                restore.port_name, e
+                            );
+                            app.serial_monitor.push_status(restore_msg.clone());
+                            app.flasher.log.push(restore_msg);
+                        }
+                    }
+                    if app.flasher.log.len() > MAX_LOG_LINES {
+                        app.flasher.log.remove(0);
+                    }
+                    app.flasher.log_scroll = usize::MAX;
+                }
             }
         }
 
