@@ -1,14 +1,14 @@
 use super::state::{
     FlasherMethod, FlasherState, FlasherSubScreen, IspBootMode, IspConfigField, JtagConfigField,
-    METHOD_ITEMS,
+    METHOD_ITEMS, SwdConfigField,
 };
 use crate::serial::ISP_BAUD_PRESETS;
 use ratatui::{
+    Frame,
     layout::{Alignment, Constraint, Layout, Margin},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Gauge, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
-    Frame,
 };
 
 pub fn render(frame: &mut Frame, state: &FlasherState) {
@@ -98,7 +98,8 @@ fn render_method_select(frame: &mut Frame, state: &FlasherState) {
 fn render_config(frame: &mut Frame, state: &FlasherState) {
     match state.method {
         FlasherMethod::UsartIsp => render_isp_config(frame, state),
-        FlasherMethod::JtagSwd => render_jtag_config(frame, state),
+        FlasherMethod::Jtag => render_jtag_config(frame, state),
+        FlasherMethod::Swd => render_swd_config(frame, state),
     }
 }
 
@@ -182,8 +183,7 @@ fn render_isp_config(frame: &mut Frame, state: &FlasherState) {
 
     for (i, (field, label, value, is_text)) in fields.iter().enumerate() {
         let focused = state.isp_field == *field;
-        let inactive = *field == IspConfigField::AutoProfile
-            && state.isp_boot_mode == IspBootMode::Manual;
+        let inactive = *field == IspConfigField::AutoProfile && state.isp_boot_mode == IspBootMode::Manual;
         let (style, arrow) = if inactive {
             (Style::default().fg(Color::DarkGray), "    ")
         } else if focused {
@@ -254,7 +254,7 @@ fn render_jtag_config(frame: &mut Frame, state: &FlasherState) {
     .areas(area);
 
     frame.render_widget(
-        Paragraph::new(" STM32 Flasher — JTAG/SWD Configuration ")
+        Paragraph::new(" STM32 Flasher — JTAG Configuration ")
             .style(
                 Style::default()
                     .fg(Color::Yellow)
@@ -290,68 +290,37 @@ fn render_jtag_config(frame: &mut Frame, state: &FlasherState) {
     ])
     .split(config_inner);
 
-    // Probe field (cycle with ◄ ►)
-    {
-        let focused = state.jtag_field == JtagConfigField::Probe;
-        let (style, arrow) = if focused {
-            (
-                Style::default()
-                    .bg(Color::Blue)
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-                "◄ ► ",
-            )
-        } else {
-            (Style::default(), "    ")
-        };
-        frame.render_widget(
-            Paragraph::new(format!("  Probe      : {}{}", arrow, probe_val)).style(style),
-            rows[0],
-        );
-    }
+    render_probe_field(
+        frame,
+        rows[0],
+        state.jtag_field == JtagConfigField::Probe,
+        &probe_val,
+    );
 
-    // Chip name (free text)
-    {
-        let focused = state.jtag_field == JtagConfigField::ChipName;
-        let style = if focused {
-            Style::default()
-                .bg(Color::Blue)
-                .fg(Color::White)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default()
-        };
-        frame.render_widget(
-            Paragraph::new(format!("  Chip Name  :   {}", state.jtag_chip_name)).style(style),
-            rows[1],
-        );
-    }
+    render_text_field(
+        frame,
+        rows[1],
+        state.jtag_field == JtagConfigField::ChipName,
+        "  Chip Name  :   ",
+        &state.jtag_chip_name,
+    );
 
-    // File path (free text)
-    {
-        let focused = state.jtag_field == JtagConfigField::FilePath;
-        let style = if focused {
-            Style::default()
-                .bg(Color::Blue)
-                .fg(Color::White)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default()
-        };
-        frame.render_widget(
-            Paragraph::new(format!("  File (.bin/.hex):   {}", state.jtag_file_path)).style(style),
-            rows[2],
-        );
-    }
+    render_text_field(
+        frame,
+        rows[2],
+        state.jtag_field == JtagConfigField::FilePath,
+        "  File (.bin/.hex):   ",
+        &state.jtag_file_path,
+    );
 
     let note = Paragraph::new(vec![
         Line::from(""),
         Line::from(Span::styled(
-            "  NOTE: Install probe drivers before use.",
+            "  NOTE: JTAG currently provides basic probe flashing only.",
             Style::default().fg(Color::Yellow),
         )),
         Line::from(Span::styled(
-            "  ST-Link: official ST drivers.  Other probes: Zadig (WinUSB).",
+            "  Press R to refresh probes. Install probe drivers before use.",
             Style::default().fg(Color::DarkGray),
         )),
     ])
@@ -363,10 +332,215 @@ fn render_jtag_config(frame: &mut Frame, state: &FlasherState) {
     frame.render_widget(note, note_area);
 
     frame.render_widget(
-        Paragraph::new("  ↑↓/Tab:Field  ←→:Change Probe  Type:Chip/File  Enter:Start  Esc:Back")
+        Paragraph::new("  ↑↓/Tab:Field  ←→:Change Probe  Type:Chip/File  R:Refresh  Enter:Start  Esc:Back")
             .style(Style::default().fg(Color::DarkGray)),
         hint_area,
     );
+}
+
+fn render_swd_config(frame: &mut Frame, state: &FlasherState) {
+    let area = frame.area();
+
+    let [title_area, body_area, note_area, hint_area] = Layout::vertical([
+        Constraint::Length(3),
+        Constraint::Length(13),
+        Constraint::Fill(1),
+        Constraint::Length(1),
+    ])
+    .areas(area);
+
+    frame.render_widget(
+        Paragraph::new(" STM32 Flasher — SWD Configuration ")
+            .style(
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .alignment(Alignment::Center)
+            .block(
+                Block::new()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow)),
+            ),
+        title_area,
+    );
+
+    let config_block = Block::new()
+        .title(" Configuration ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan));
+    let config_inner = config_block.inner(body_area);
+    frame.render_widget(config_block, body_area);
+
+    let probe_val = if state.swd_probe_list.is_empty() {
+        "(no probes found)".to_string()
+    } else {
+        state.swd_probe_list[state.swd_probe_idx].clone()
+    };
+
+    let rows = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Fill(1),
+    ])
+    .split(config_inner);
+
+    render_cycle_field(
+        frame,
+        rows[0],
+        state.swd_field == SwdConfigField::Probe,
+        "Probe          ",
+        &probe_val,
+    );
+    render_cycle_field(
+        frame,
+        rows[1],
+        state.swd_field == SwdConfigField::Speed,
+        "Speed (kHz)    ",
+        &state.swd_speed_khz().to_string(),
+    );
+    render_cycle_field(
+        frame,
+        rows[2],
+        state.swd_field == SwdConfigField::ConnectMode,
+        "Connect Mode   ",
+        state.swd_connect_mode.label(),
+    );
+    render_cycle_field(
+        frame,
+        rows[3],
+        state.swd_field == SwdConfigField::Verify,
+        "Verify         ",
+        if state.swd_verify { "Enabled" } else { "Disabled" },
+    );
+    render_cycle_field(
+        frame,
+        rows[4],
+        state.swd_field == SwdConfigField::ResetRun,
+        "Reset + Run    ",
+        if state.swd_reset_run { "Enabled" } else { "Disabled" },
+    );
+    render_text_field(
+        frame,
+        rows[5],
+        state.swd_field == SwdConfigField::BinBaseAddress,
+        "  BIN Base Addr :   ",
+        &state.swd_bin_base_address,
+    );
+    render_cycle_field(
+        frame,
+        rows[6],
+        state.swd_field == SwdConfigField::ChipPreset,
+        "Chip Preset    ",
+        state.swd_chip_preset(),
+    );
+    render_text_field(
+        frame,
+        rows[7],
+        state.swd_field == SwdConfigField::ChipName,
+        "  Chip Name     :   ",
+        &state.swd_chip_name,
+    );
+    render_text_field(
+        frame,
+        rows[8],
+        state.swd_field == SwdConfigField::FilePath,
+        "  File (.bin/.hex): ",
+        &state.swd_file_path,
+    );
+
+    let note = Paragraph::new(vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            "  NOTE: Use Under Reset when the target is hard to attach or remaps SWD pins.",
+            Style::default().fg(Color::Yellow),
+        )),
+        Line::from(Span::styled(
+            "  BIN files need a flash base address; presets fill Chip Name and manual editing is still supported.",
+            Style::default().fg(Color::DarkGray),
+        )),
+    ])
+    .block(
+        Block::new()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::DarkGray)),
+    );
+    frame.render_widget(note, note_area);
+
+    frame.render_widget(
+        Paragraph::new(
+            "  ↑↓/Tab:Field  ←→:Change option  Type:Addr/Chip/File  R:Refresh  Enter:Start  Esc:Back",
+        )
+        .style(Style::default().fg(Color::DarkGray)),
+        hint_area,
+    );
+}
+
+fn render_probe_field(frame: &mut Frame, area: ratatui::layout::Rect, focused: bool, value: &str) {
+    let (style, arrow) = if focused {
+        (
+            Style::default()
+                .bg(Color::Blue)
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+            "◄ ► ",
+        )
+    } else {
+        (Style::default(), "    ")
+    };
+    frame.render_widget(
+        Paragraph::new(format!("  Probe      : {}{}", arrow, value)).style(style),
+        area,
+    );
+}
+
+fn render_cycle_field(
+    frame: &mut Frame,
+    area: ratatui::layout::Rect,
+    focused: bool,
+    label: &str,
+    value: &str,
+) {
+    let (style, arrow) = if focused {
+        (
+            Style::default()
+                .bg(Color::Blue)
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+            "◄ ► ",
+        )
+    } else {
+        (Style::default(), "    ")
+    };
+    frame.render_widget(
+        Paragraph::new(format!("  {}: {}{}", label, arrow, value)).style(style),
+        area,
+    );
+}
+
+fn render_text_field(
+    frame: &mut Frame,
+    area: ratatui::layout::Rect,
+    focused: bool,
+    prefix: &str,
+    value: &str,
+) {
+    let style = if focused {
+        Style::default()
+            .bg(Color::Blue)
+            .fg(Color::White)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
+    frame.render_widget(Paragraph::new(format!("{}{}", prefix, value)).style(style), area);
 }
 
 fn render_progress(frame: &mut Frame, state: &FlasherState) {
@@ -382,7 +556,8 @@ fn render_progress(frame: &mut Frame, state: &FlasherState) {
 
     let title_label = match state.method {
         FlasherMethod::UsartIsp => " STM32 Flasher — USART ISP Progress ",
-        FlasherMethod::JtagSwd => " STM32 Flasher — JTAG/SWD Progress ",
+        FlasherMethod::Jtag => " STM32 Flasher — JTAG Progress ",
+        FlasherMethod::Swd => " STM32 Flasher — SWD Progress ",
     };
     let title_color = if state.op_done {
         if state.op_ok {
@@ -409,7 +584,6 @@ fn render_progress(frame: &mut Frame, state: &FlasherState) {
         title_area,
     );
 
-    // Log panel
     let log_block = Block::new()
         .title(" Operation Log ")
         .borders(Borders::ALL)
@@ -453,7 +627,6 @@ fn render_progress(frame: &mut Frame, state: &FlasherState) {
         );
     }
 
-    // Progress gauge
     let (pct, gauge_label, gauge_color) = if state.op_done {
         if state.op_ok {
             (100u16, " Complete ".to_string(), Color::Green)

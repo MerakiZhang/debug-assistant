@@ -1,10 +1,15 @@
-pub mod jtag_swd;
+pub mod common;
+pub mod jtag;
 pub mod state;
+pub mod swd;
 pub mod ui;
 pub mod usart_isp;
 
 pub use state::FlasherState;
-use state::{FlasherMethod, FlasherSubScreen, IspBootMode, IspConfigField, JtagConfigField, METHOD_ITEMS};
+use state::{
+    FlasherMethod, FlasherSubScreen, IspBootMode, IspConfigField, JtagConfigField,
+    METHOD_ITEMS, SwdConfigField, SWD_CHIP_PRESETS, SWD_SPEED_PRESETS,
+};
 
 use crate::event::AppEvent;
 use crate::serial_monitor::SerialMonitorState;
@@ -69,7 +74,8 @@ fn handle_config(
 ) -> Action {
     match state.method {
         FlasherMethod::UsartIsp => handle_isp_config(state, code, mods, serial_monitor, tx),
-        FlasherMethod::JtagSwd => handle_jtag_config(state, code, mods, tx),
+        FlasherMethod::Jtag => handle_jtag_config(state, code, mods, tx),
+        FlasherMethod::Swd => handle_swd_config(state, code, mods, tx),
     }
 }
 
@@ -205,7 +211,22 @@ fn handle_jtag_config(
             state.sub_screen = FlasherSubScreen::MethodSelect;
             Action::None
         }
-        (KeyCode::Char('q'), KeyModifiers::NONE) => Action::Quit,
+        (KeyCode::Char('r'), KeyModifiers::NONE) => {
+            if state.jtag_field == JtagConfigField::Probe {
+                state.refresh_jtag_probes();
+                Action::None
+            } else {
+                match state.jtag_field {
+                    JtagConfigField::ChipName => state.jtag_chip_input_char('r'),
+                    JtagConfigField::FilePath => state.jtag_file_input_char('r'),
+                    JtagConfigField::Probe => {}
+                }
+                Action::None
+            }
+        }
+        (KeyCode::Char('q'), KeyModifiers::NONE) if state.jtag_field == JtagConfigField::Probe => {
+            Action::Quit
+        }
         (KeyCode::Up, _) | (KeyCode::BackTab, _) => {
             state.jtag_field = state.jtag_field.prev();
             Action::None
@@ -215,19 +236,11 @@ fn handle_jtag_config(
             Action::None
         }
         (KeyCode::Left, _) if state.jtag_field == JtagConfigField::Probe => {
-            if !state.jtag_probe_list.is_empty() {
-                if state.jtag_probe_idx == 0 {
-                    state.jtag_probe_idx = state.jtag_probe_list.len() - 1;
-                } else {
-                    state.jtag_probe_idx -= 1;
-                }
-            }
+            cycle_probe_idx(&mut state.jtag_probe_idx, state.jtag_probe_list.len(), false);
             Action::None
         }
         (KeyCode::Right, _) if state.jtag_field == JtagConfigField::Probe => {
-            if !state.jtag_probe_list.is_empty() {
-                state.jtag_probe_idx = (state.jtag_probe_idx + 1) % state.jtag_probe_list.len();
-            }
+            cycle_probe_idx(&mut state.jtag_probe_idx, state.jtag_probe_list.len(), true);
             Action::None
         }
         (KeyCode::Backspace, _) => {
@@ -248,7 +261,7 @@ fn handle_jtag_config(
         }
         (KeyCode::Enter, _) => {
             state.enter_progress();
-            if let Err(e) = jtag_swd::start_flash(state, tx) {
+            if let Err(e) = jtag::start_flash(state, tx) {
                 state.log.push(format!("Error: {}", e));
                 state.op_done = true;
                 state.op_ok = false;
@@ -256,6 +269,139 @@ fn handle_jtag_config(
             Action::None
         }
         _ => Action::None,
+    }
+}
+
+fn handle_swd_config(
+    state: &mut FlasherState,
+    code: KeyCode,
+    mods: KeyModifiers,
+    tx: mpsc::Sender<AppEvent>,
+) -> Action {
+    match (code, mods) {
+        (KeyCode::Esc, _) => {
+            state.sub_screen = FlasherSubScreen::MethodSelect;
+            Action::None
+        }
+        (KeyCode::Char('r'), KeyModifiers::NONE) => {
+            if state.swd_field == SwdConfigField::Probe {
+                state.refresh_swd_probes();
+                Action::None
+            } else {
+                match state.swd_field {
+                    SwdConfigField::BinBaseAddress => state.swd_bin_base_input_char('r'),
+                    SwdConfigField::ChipName => state.swd_chip_input_char('r'),
+                    SwdConfigField::FilePath => state.swd_file_input_char('r'),
+                    _ => {}
+                }
+                Action::None
+            }
+        }
+        (KeyCode::Char('q'), KeyModifiers::NONE)
+            if !matches!(
+                state.swd_field,
+                SwdConfigField::BinBaseAddress | SwdConfigField::ChipName | SwdConfigField::FilePath
+            ) =>
+        {
+            Action::Quit
+        }
+        (KeyCode::Up, _) | (KeyCode::BackTab, _) => {
+            state.swd_field = state.swd_field.prev();
+            Action::None
+        }
+        (KeyCode::Down, _) | (KeyCode::Tab, KeyModifiers::NONE) => {
+            state.swd_field = state.swd_field.next();
+            Action::None
+        }
+        (KeyCode::Left, _) => {
+            cycle_swd_option(state, false);
+            Action::None
+        }
+        (KeyCode::Right, _) => {
+            cycle_swd_option(state, true);
+            Action::None
+        }
+        (KeyCode::Backspace, _) => {
+                match state.swd_field {
+                    SwdConfigField::BinBaseAddress => state.swd_bin_base_backspace(),
+                    SwdConfigField::ChipName => state.swd_chip_backspace(),
+                    SwdConfigField::FilePath => state.swd_file_backspace(),
+                    SwdConfigField::ChipPreset => {}
+                    _ => {}
+                }
+            Action::None
+        }
+        (KeyCode::Char(c), KeyModifiers::NONE) | (KeyCode::Char(c), KeyModifiers::SHIFT) => {
+                match state.swd_field {
+                    SwdConfigField::BinBaseAddress => state.swd_bin_base_input_char(c),
+                    SwdConfigField::ChipName => state.swd_chip_input_char(c),
+                    SwdConfigField::FilePath => state.swd_file_input_char(c),
+                    SwdConfigField::ChipPreset => {}
+                    _ => {}
+                }
+            Action::None
+        }
+        (KeyCode::Enter, _) => {
+            state.enter_progress();
+            if let Err(e) = swd::start_flash(state, tx) {
+                state.log.push(format!("Error: {}", e));
+                state.op_done = true;
+                state.op_ok = false;
+            }
+            Action::None
+        }
+        _ => Action::None,
+    }
+}
+
+fn cycle_probe_idx(idx: &mut usize, len: usize, forward: bool) {
+    if len == 0 {
+        return;
+    }
+
+    if forward {
+        *idx = (*idx + 1) % len;
+    } else if *idx == 0 {
+        *idx = len - 1;
+    } else {
+        *idx -= 1;
+    }
+}
+
+fn cycle_swd_option(state: &mut FlasherState, forward: bool) {
+    match state.swd_field {
+        SwdConfigField::Probe => {
+            cycle_probe_idx(&mut state.swd_probe_idx, state.swd_probe_list.len(), forward)
+        }
+        SwdConfigField::Speed => {
+            if forward {
+                state.swd_speed_idx = (state.swd_speed_idx + 1) % SWD_SPEED_PRESETS.len();
+            } else if state.swd_speed_idx == 0 {
+                state.swd_speed_idx = SWD_SPEED_PRESETS.len() - 1;
+            } else {
+                state.swd_speed_idx -= 1;
+            }
+        }
+        SwdConfigField::ConnectMode => {
+            state.swd_connect_mode = if forward {
+                state.swd_connect_mode.next()
+            } else {
+                state.swd_connect_mode.prev()
+            };
+        }
+        SwdConfigField::Verify => state.swd_verify = !state.swd_verify,
+        SwdConfigField::ResetRun => state.swd_reset_run = !state.swd_reset_run,
+        SwdConfigField::ChipPreset => {
+            if forward {
+                state.swd_chip_preset_idx = (state.swd_chip_preset_idx + 1) % SWD_CHIP_PRESETS.len();
+            } else if state.swd_chip_preset_idx == 0 {
+                state.swd_chip_preset_idx = SWD_CHIP_PRESETS.len() - 1;
+            } else {
+                state.swd_chip_preset_idx -= 1;
+            }
+            state.swd_apply_chip_preset();
+        }
+        SwdConfigField::BinBaseAddress | SwdConfigField::ChipName | SwdConfigField::FilePath => {}
     }
 }
 
