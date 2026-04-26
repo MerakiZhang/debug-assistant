@@ -1,15 +1,11 @@
-mod event;
-mod flasher;
-mod home;
-mod log_export;
-mod root_app;
-mod root_ui;
-mod serial;
-mod serial_monitor;
-mod ui_theme;
+mod app;
+mod core;
+mod features;
+mod transport;
+mod ui;
 
-use event::AppEvent;
-use root_app::RootApp;
+use app::event::AppEvent;
+use app::root::RootApp;
 use std::sync::mpsc;
 
 fn main() -> anyhow::Result<()> {
@@ -25,10 +21,10 @@ fn run(terminal: &mut ratatui::DefaultTerminal) -> anyhow::Result<()> {
     let (tx, rx) = mpsc::channel::<AppEvent>();
     let mut app = RootApp::new(tx.clone());
 
-    event::spawn_event_thread(tx.clone());
+    app::event::spawn_event_thread(tx.clone());
 
     loop {
-        terminal.draw(|frame| root_ui::render(frame, &app))?;
+        terminal.draw(|frame| app::root_ui::render(frame, &app))?;
 
         match rx.recv()? {
             AppEvent::Tick => app.on_tick(),

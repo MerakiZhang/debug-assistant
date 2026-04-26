@@ -1,6 +1,6 @@
 # Debug Assistant
 
-![version](https://img.shields.io/badge/version-0.1.2-blue)
+![version](https://img.shields.io/badge/version-0.1.3-blue)
 ![platform](https://img.shields.io/badge/platform-Windows-lightgrey)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
@@ -12,12 +12,13 @@
 
 ## 功能概览
 
-| 入口 | 用途 |
-|------|------|
-| **Serial Monitor** | 串口收发调试终端，支持 ASCII / HEX / BOTH 显示、发送历史、日志导出 |
-| **USART ISP Flash** | 通过 STM32 ROM Bootloader 下载 `.bin` / `.hex` 固件，支持手动和自动进入 Bootloader |
-| **JTAG Flash** | 通过调试探针使用 JTAG 协议烧录固件，支持芯片预设和手动输入 |
-| **SWD Flash** | 通过调试探针使用 SWD 协议烧录固件，支持 Under Reset 连接模式 |
+| 协议入口 | 可用工具 |
+|----------|---------|
+| **UART** | Serial Monitor（串口收发调试）、USART ISP Flash（Bootloader 下载） |
+| **JTAG** | Flash（通过调试探针烧录） |
+| **SWD** | Flash（通过调试探针烧录） |
+| **I2C** | 即将支持 |
+| **SPI** | 即将支持 |
 
 ---
 
@@ -38,27 +39,28 @@ cargo run
 cargo run --release
 ```
 
-**操作流程**
+**基本操作**
 
-1. 启动后用 `↑ / ↓` 在首页选择协议入口。
-2. 按 `Enter` 进入工作台。
-3. 在 Setup 面板配置好参数后按 `Enter` 连接或开始烧录。
-4. 按 `Esc` 返回上一层，`Ctrl+C` 随时退出。
+1. 启动后用 `↑ / ↓` 在首页选择协议（UART / JTAG / SWD），`Enter` 进入协议工作台。
+2. 在工作台选择具体工具，`Enter` 打开。
+3. 配置好参数后按 `Enter` 连接或开始烧录。
+4. `Esc` 返回上一层，`Ctrl+C` 随时退出。
 
 ---
 
 ## Serial Monitor
 
-串口通信终端。进入后左侧是 Setup 面板（连接配置和状态），右侧是流量监视区，底部是发送行。
+串口通信终端。屏幕分三个区域：顶部是 Setup 配置面板，中间是接收日志，底部是发送行。用 `Tab` 在三个区域之间循环切换焦点。
 
 **使用流程**
 
 1. 按 `Tab` 或 `F2` 将焦点切换到 Setup 面板。
 2. `↑ / ↓` 导航字段，`← / →` 切换选项，`R`（在 Port 字段）刷新串口列表。
 3. 配置好 Port / Baud / Data / Stop / Parity / Flow 后按 `Enter` 连接。
-4. `Tab` 切到 Send 面板输入发送内容，`Enter` 发送。
-5. `Tab` 切到 Receive 面板用方向键滚动日志。
-6. `F6` 复制日志，`F7` 保存日志到 `logs/`。
+4. `Esc` 或 `Tab` 离开 Setup，焦点回到 Send。
+5. 在 Send 区输入内容，`Enter` 发送。
+6. `Tab` 切到 Receive 区用方向键滚动日志。
+7. `F6` 复制日志，`F7` 保存日志到 `logs/`。
 
 **支持能力**
 
@@ -170,6 +172,14 @@ cargo run --release
 | `Ctrl+H` | 切换 HEX 发送模式 |
 | `Ctrl+N` | 切换换行后缀（None → CR → LF → CRLF） |
 
+**Receive 面板**
+
+| 按键 | 功能 |
+|------|------|
+| `↑ / ↓` | 滚动一行 |
+| `PgUp / PgDn` | 滚动一页 |
+| `Home / End` | 跳到最顶 / 最底（End 同时恢复自动滚动） |
+
 ### Flash 工作台
 
 适用于 USART ISP、JTAG 和 SWD。
@@ -184,7 +194,7 @@ cargo run --release
 | `F6` | 复制日志 |
 | `F7` | 保存日志 |
 | `Enter` | 开始烧录 |
-| `Esc` | 返回上一层 |
+| `Esc` | 返回协议工作台 |
 
 **烧录进行中**
 
