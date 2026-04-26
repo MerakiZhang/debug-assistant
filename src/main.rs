@@ -1,10 +1,12 @@
 mod event;
 mod flasher;
 mod home;
+mod log_export;
 mod root_app;
 mod root_ui;
 mod serial;
 mod serial_monitor;
+mod ui_theme;
 
 use event::AppEvent;
 use root_app::RootApp;

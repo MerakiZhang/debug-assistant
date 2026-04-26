@@ -209,8 +209,7 @@ pub fn write_chunk(
     port.write_all(&padded)?;
     port.write_all(&[checksum])?;
     port.flush()?;
-    expect_ack_with_timeout(port, WRITE_DATA_ACK_TIMEOUT)
-        .context("WriteMemory data ACK failed")?;
+    expect_ack_with_timeout(port, WRITE_DATA_ACK_TIMEOUT).context("WriteMemory data ACK failed")?;
 
     Ok(())
 }

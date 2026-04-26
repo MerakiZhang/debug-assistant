@@ -7,11 +7,12 @@ pub mod usart_isp;
 
 pub use state::FlasherState;
 use state::{
-    FlasherMethod, FlasherSubScreen, IspBootMode, IspConfigField, JtagConfigField,
-    METHOD_ITEMS, SwdConfigField, SWD_CHIP_PRESETS, SWD_SPEED_PRESETS,
+    FlasherMethod, FlasherSubScreen, IspConfigField, JtagConfigField, SwdConfigField,
+    JTAG_CHIP_PRESETS, JTAG_SPEED_PRESETS, SWD_CHIP_PRESETS, SWD_SPEED_PRESETS,
 };
 
 use crate::event::AppEvent;
+use crate::log_export;
 use crate::serial_monitor::SerialMonitorState;
 use crossterm::event::{KeyCode, KeyModifiers};
 use std::sync::mpsc;
@@ -20,7 +21,7 @@ use std::sync::mpsc;
 pub enum Action {
     None,
     GoHome,
-    Quit,
+    GoSerial,
 }
 
 pub fn render(frame: &mut ratatui::Frame, state: &FlasherState) {
@@ -34,35 +35,44 @@ pub fn handle_key(
     serial_monitor: Option<&mut SerialMonitorState>,
     tx: mpsc::Sender<AppEvent>,
 ) -> Action {
+    match code {
+        KeyCode::F(6) => {
+            copy_log_to_clipboard(state);
+            return Action::None;
+        }
+        KeyCode::F(7) => {
+            save_log_to_file(state);
+            return Action::None;
+        }
+        _ => {}
+    }
+
     match state.sub_screen {
-        FlasherSubScreen::MethodSelect => handle_method_select(state, code),
         FlasherSubScreen::Config => handle_config(state, code, mods, serial_monitor, tx),
         FlasherSubScreen::Progress => handle_progress(state, code),
     }
 }
 
-fn handle_method_select(state: &mut FlasherState, code: KeyCode) -> Action {
-    match code {
-        KeyCode::Esc => Action::GoHome,
-        KeyCode::Char('q') => Action::Quit,
-        KeyCode::Up => {
-            if state.selected == 0 {
-                state.selected = METHOD_ITEMS.len() - 1;
-            } else {
-                state.selected -= 1;
-            }
-            Action::None
-        }
-        KeyCode::Down => {
-            state.selected = (state.selected + 1) % METHOD_ITEMS.len();
-            Action::None
-        }
-        KeyCode::Enter => {
-            state.enter_config();
-            Action::None
-        }
-        _ => Action::None,
+fn flasher_log_text(state: &FlasherState) -> String {
+    state.log.join("\n")
+}
+
+fn copy_log_to_clipboard(state: &mut FlasherState) {
+    let text = flasher_log_text(state);
+    match log_export::copy_to_clipboard(&text) {
+        Ok(()) => state.log.push("Log copied to clipboard.".into()),
+        Err(e) => state.log.push(format!("Copy log failed: {}", e)),
     }
+    state.scroll_log_end();
+}
+
+fn save_log_to_file(state: &mut FlasherState) {
+    let text = flasher_log_text(state);
+    match log_export::save_log("flasher", &text) {
+        Ok(path) => state.log.push(format!("Log saved to {}", path.display())),
+        Err(e) => state.log.push(format!("Save log failed: {}", e)),
+    }
+    state.scroll_log_end();
 }
 
 fn handle_config(
@@ -87,17 +97,29 @@ fn handle_isp_config(
     tx: mpsc::Sender<AppEvent>,
 ) -> Action {
     match (code, mods) {
-        (KeyCode::Esc, _) => {
-            state.sub_screen = FlasherSubScreen::MethodSelect;
-            Action::None
-        }
-        (KeyCode::Char('q'), KeyModifiers::NONE) => Action::Quit,
+        (KeyCode::Esc, _) => Action::GoSerial,
         (KeyCode::Up, _) | (KeyCode::BackTab, _) => {
             state.isp_field_prev();
             Action::None
         }
         (KeyCode::Down, _) | (KeyCode::Tab, KeyModifiers::NONE) => {
             state.isp_field_next();
+            Action::None
+        }
+        (KeyCode::Left, _) if state.isp_field == IspConfigField::FilePath => {
+            state.isp_file_cursor_left();
+            Action::None
+        }
+        (KeyCode::Right, _) if state.isp_field == IspConfigField::FilePath => {
+            state.isp_file_cursor_right();
+            Action::None
+        }
+        (KeyCode::Home, _) if state.isp_field == IspConfigField::FilePath => {
+            state.isp_file_cursor_home();
+            Action::None
+        }
+        (KeyCode::End, _) if state.isp_field == IspConfigField::FilePath => {
+            state.isp_file_cursor_end();
             Action::None
         }
         (KeyCode::Left, _) => {
@@ -123,7 +145,9 @@ fn handle_isp_config(
             state.clear_serial_monitor_restore();
             if let Some(port_name) = selected_isp_port_name(state).map(str::to_string) {
                 if let Some(serial_monitor) = serial_monitor {
-                    if serial_monitor.connected && serial_monitor.serial_config.port_name == port_name {
+                    if serial_monitor.connected
+                        && serial_monitor.serial_config.port_name == port_name
+                    {
                         state.plan_serial_monitor_restore(serial_monitor.serial_config.clone());
                         serial_monitor.disconnect();
                         preflight_log = Some(format!(
@@ -173,7 +197,8 @@ fn cycle_isp_option(state: &mut FlasherState, forward: bool) {
         }
         IspConfigField::BaudRate => {
             if forward {
-                state.isp_baud_idx = (state.isp_baud_idx + 1) % crate::serial::ISP_BAUD_PRESETS.len();
+                state.isp_baud_idx =
+                    (state.isp_baud_idx + 1) % crate::serial::ISP_BAUD_PRESETS.len();
             } else if state.isp_baud_idx == 0 {
                 state.isp_baud_idx = crate::serial::ISP_BAUD_PRESETS.len() - 1;
             } else {
@@ -187,15 +212,6 @@ fn cycle_isp_option(state: &mut FlasherState, forward: bool) {
                 state.isp_boot_mode.prev()
             };
         }
-        IspConfigField::AutoProfile => {
-            if state.isp_boot_mode == IspBootMode::Auto {
-                state.isp_auto_profile = if forward {
-                    state.isp_auto_profile.next()
-                } else {
-                    state.isp_auto_profile.prev()
-                };
-            }
-        }
         IspConfigField::FilePath => {}
     }
 }
@@ -207,25 +223,21 @@ fn handle_jtag_config(
     tx: mpsc::Sender<AppEvent>,
 ) -> Action {
     match (code, mods) {
-        (KeyCode::Esc, _) => {
-            state.sub_screen = FlasherSubScreen::MethodSelect;
-            Action::None
-        }
+        (KeyCode::Esc, _) => Action::GoHome,
         (KeyCode::Char('r'), KeyModifiers::NONE) => {
             if state.jtag_field == JtagConfigField::Probe {
                 state.refresh_jtag_probes();
                 Action::None
             } else {
                 match state.jtag_field {
+                    JtagConfigField::BinBaseAddress => state.jtag_bin_base_input_char('r'),
                     JtagConfigField::ChipName => state.jtag_chip_input_char('r'),
                     JtagConfigField::FilePath => state.jtag_file_input_char('r'),
-                    JtagConfigField::Probe => {}
+                    JtagConfigField::ChipPreset => {}
+                    _ => {}
                 }
                 Action::None
             }
-        }
-        (KeyCode::Char('q'), KeyModifiers::NONE) if state.jtag_field == JtagConfigField::Probe => {
-            Action::Quit
         }
         (KeyCode::Up, _) | (KeyCode::BackTab, _) => {
             state.jtag_field = state.jtag_field.prev();
@@ -235,27 +247,31 @@ fn handle_jtag_config(
             state.jtag_field = state.jtag_field.next();
             Action::None
         }
-        (KeyCode::Left, _) if state.jtag_field == JtagConfigField::Probe => {
-            cycle_probe_idx(&mut state.jtag_probe_idx, state.jtag_probe_list.len(), false);
+        (KeyCode::Left, _) => {
+            cycle_jtag_option(state, false);
             Action::None
         }
-        (KeyCode::Right, _) if state.jtag_field == JtagConfigField::Probe => {
-            cycle_probe_idx(&mut state.jtag_probe_idx, state.jtag_probe_list.len(), true);
+        (KeyCode::Right, _) => {
+            cycle_jtag_option(state, true);
             Action::None
         }
         (KeyCode::Backspace, _) => {
             match state.jtag_field {
+                JtagConfigField::BinBaseAddress => state.jtag_bin_base_backspace(),
                 JtagConfigField::ChipName => state.jtag_chip_backspace(),
                 JtagConfigField::FilePath => state.jtag_file_backspace(),
-                JtagConfigField::Probe => {}
+                JtagConfigField::ChipPreset => {}
+                _ => {}
             }
             Action::None
         }
         (KeyCode::Char(c), KeyModifiers::NONE) | (KeyCode::Char(c), KeyModifiers::SHIFT) => {
             match state.jtag_field {
+                JtagConfigField::BinBaseAddress => state.jtag_bin_base_input_char(c),
                 JtagConfigField::ChipName => state.jtag_chip_input_char(c),
                 JtagConfigField::FilePath => state.jtag_file_input_char(c),
-                JtagConfigField::Probe => {}
+                JtagConfigField::ChipPreset => {}
+                _ => {}
             }
             Action::None
         }
@@ -279,10 +295,7 @@ fn handle_swd_config(
     tx: mpsc::Sender<AppEvent>,
 ) -> Action {
     match (code, mods) {
-        (KeyCode::Esc, _) => {
-            state.sub_screen = FlasherSubScreen::MethodSelect;
-            Action::None
-        }
+        (KeyCode::Esc, _) => Action::GoHome,
         (KeyCode::Char('r'), KeyModifiers::NONE) => {
             if state.swd_field == SwdConfigField::Probe {
                 state.refresh_swd_probes();
@@ -296,14 +309,6 @@ fn handle_swd_config(
                 }
                 Action::None
             }
-        }
-        (KeyCode::Char('q'), KeyModifiers::NONE)
-            if !matches!(
-                state.swd_field,
-                SwdConfigField::BinBaseAddress | SwdConfigField::ChipName | SwdConfigField::FilePath
-            ) =>
-        {
-            Action::Quit
         }
         (KeyCode::Up, _) | (KeyCode::BackTab, _) => {
             state.swd_field = state.swd_field.prev();
@@ -322,23 +327,23 @@ fn handle_swd_config(
             Action::None
         }
         (KeyCode::Backspace, _) => {
-                match state.swd_field {
-                    SwdConfigField::BinBaseAddress => state.swd_bin_base_backspace(),
-                    SwdConfigField::ChipName => state.swd_chip_backspace(),
-                    SwdConfigField::FilePath => state.swd_file_backspace(),
-                    SwdConfigField::ChipPreset => {}
-                    _ => {}
-                }
+            match state.swd_field {
+                SwdConfigField::BinBaseAddress => state.swd_bin_base_backspace(),
+                SwdConfigField::ChipName => state.swd_chip_backspace(),
+                SwdConfigField::FilePath => state.swd_file_backspace(),
+                SwdConfigField::ChipPreset => {}
+                _ => {}
+            }
             Action::None
         }
         (KeyCode::Char(c), KeyModifiers::NONE) | (KeyCode::Char(c), KeyModifiers::SHIFT) => {
-                match state.swd_field {
-                    SwdConfigField::BinBaseAddress => state.swd_bin_base_input_char(c),
-                    SwdConfigField::ChipName => state.swd_chip_input_char(c),
-                    SwdConfigField::FilePath => state.swd_file_input_char(c),
-                    SwdConfigField::ChipPreset => {}
-                    _ => {}
-                }
+            match state.swd_field {
+                SwdConfigField::BinBaseAddress => state.swd_bin_base_input_char(c),
+                SwdConfigField::ChipName => state.swd_chip_input_char(c),
+                SwdConfigField::FilePath => state.swd_file_input_char(c),
+                SwdConfigField::ChipPreset => {}
+                _ => {}
+            }
             Action::None
         }
         (KeyCode::Enter, _) => {
@@ -368,11 +373,47 @@ fn cycle_probe_idx(idx: &mut usize, len: usize, forward: bool) {
     }
 }
 
+fn cycle_jtag_option(state: &mut FlasherState, forward: bool) {
+    match state.jtag_field {
+        JtagConfigField::Probe => cycle_probe_idx(
+            &mut state.jtag_probe_idx,
+            state.jtag_probe_list.len(),
+            forward,
+        ),
+        JtagConfigField::Speed => {
+            if forward {
+                state.jtag_speed_idx = (state.jtag_speed_idx + 1) % JTAG_SPEED_PRESETS.len();
+            } else if state.jtag_speed_idx == 0 {
+                state.jtag_speed_idx = JTAG_SPEED_PRESETS.len() - 1;
+            } else {
+                state.jtag_speed_idx -= 1;
+            }
+        }
+        JtagConfigField::Verify => state.jtag_verify = !state.jtag_verify,
+        JtagConfigField::ResetRun => state.jtag_reset_run = !state.jtag_reset_run,
+        JtagConfigField::ChipPreset => {
+            if forward {
+                state.jtag_chip_preset_idx =
+                    (state.jtag_chip_preset_idx + 1) % JTAG_CHIP_PRESETS.len();
+            } else if state.jtag_chip_preset_idx == 0 {
+                state.jtag_chip_preset_idx = JTAG_CHIP_PRESETS.len() - 1;
+            } else {
+                state.jtag_chip_preset_idx -= 1;
+            }
+            state.jtag_apply_chip_preset();
+        }
+        JtagConfigField::BinBaseAddress | JtagConfigField::ChipName | JtagConfigField::FilePath => {
+        }
+    }
+}
+
 fn cycle_swd_option(state: &mut FlasherState, forward: bool) {
     match state.swd_field {
-        SwdConfigField::Probe => {
-            cycle_probe_idx(&mut state.swd_probe_idx, state.swd_probe_list.len(), forward)
-        }
+        SwdConfigField::Probe => cycle_probe_idx(
+            &mut state.swd_probe_idx,
+            state.swd_probe_list.len(),
+            forward,
+        ),
         SwdConfigField::Speed => {
             if forward {
                 state.swd_speed_idx = (state.swd_speed_idx + 1) % SWD_SPEED_PRESETS.len();
@@ -393,7 +434,8 @@ fn cycle_swd_option(state: &mut FlasherState, forward: bool) {
         SwdConfigField::ResetRun => state.swd_reset_run = !state.swd_reset_run,
         SwdConfigField::ChipPreset => {
             if forward {
-                state.swd_chip_preset_idx = (state.swd_chip_preset_idx + 1) % SWD_CHIP_PRESETS.len();
+                state.swd_chip_preset_idx =
+                    (state.swd_chip_preset_idx + 1) % SWD_CHIP_PRESETS.len();
             } else if state.swd_chip_preset_idx == 0 {
                 state.swd_chip_preset_idx = SWD_CHIP_PRESETS.len() - 1;
             } else {
@@ -421,19 +463,9 @@ fn handle_progress(state: &mut FlasherState, code: KeyCode) -> Action {
                 return Action::None;
             }
 
-            if let Some(flag) = state.stop_flag.take() {
-                flag.store(true, std::sync::atomic::Ordering::Relaxed);
-            }
-            state.cancel_armed = false;
+            state.request_stop();
             state.sub_screen = FlasherSubScreen::Config;
             Action::None
-        }
-        KeyCode::Char('q') => {
-            if let Some(flag) = state.stop_flag.take() {
-                flag.store(true, std::sync::atomic::Ordering::Relaxed);
-            }
-            state.cancel_armed = false;
-            Action::Quit
         }
         KeyCode::Up => {
             state.cancel_armed = false;

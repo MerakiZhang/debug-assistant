@@ -1,44 +1,17 @@
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, mpsc};
+use std::sync::{mpsc, Arc};
 
-use anyhow::{Context, bail};
+use anyhow::{bail, Context};
 use probe_rs::flashing;
 use probe_rs::probe::list::Lister;
 use probe_rs::probe::WireProtocol;
 use probe_rs::Permissions;
 
 use crate::event::AppEvent;
-use crate::flasher::common::{detect_file_kind, send_done, validate_firmware_path};
+use crate::flasher::common::{
+    detect_file_kind, format_for_download, parse_address, send_done, validate_firmware_path,
+};
 use crate::flasher::state::{FlasherState, SwdConnectMode};
-
-fn parse_address(input: &str) -> anyhow::Result<u64> {
-    let trimmed = input.trim();
-    if trimmed.is_empty() {
-        bail!("BIN base address is empty");
-    }
-
-    if let Some(hex) = trimmed
-        .strip_prefix("0x")
-        .or_else(|| trimmed.strip_prefix("0X"))
-    {
-        u64::from_str_radix(hex, 16).context("BIN base address must be a valid hex number")
-    } else {
-        trimmed
-            .parse::<u64>()
-            .context("BIN base address must be a valid decimal or hex number")
-    }
-}
-
-fn format_for_download(file_path: &str, base_address: Option<u64>) -> anyhow::Result<flashing::Format> {
-    match detect_file_kind(file_path) {
-        Some(flashing::FormatKind::Bin) => Ok(flashing::Format::Bin(flashing::BinOptions {
-            base_address,
-            skip: 0,
-        })),
-        Some(flashing::FormatKind::Hex) => Ok(flashing::Format::Hex),
-        _ => bail!("Only .bin/.hex files are supported (got: {})", file_path),
-    }
-}
 
 pub fn start_flash(state: &mut FlasherState, tx: mpsc::Sender<AppEvent>) -> anyhow::Result<()> {
     let chip_name = state.swd_chip_name.trim().to_string();
@@ -157,7 +130,10 @@ fn run_swd(
     if verify {
         log!("Post-flash verify enabled");
     }
-    log!("Flashing {}... (Esc takes effect after this step completes)", file_path);
+    log!(
+        "Flashing {}... (Esc takes effect after this step completes)",
+        file_path
+    );
     flashing::download_file_with_options(&mut session, file_path, format, options)
         .context("SWD flash failed")?;
     tx.send(AppEvent::FlasherProgress(90)).ok();
@@ -166,7 +142,8 @@ fn run_swd(
     if reset_run {
         log!("Resetting target and resuming execution...");
         let mut core = session.core(0).context("Failed to access target core 0")?;
-        core.reset().context("Failed to reset target after flashing")?;
+        core.reset()
+            .context("Failed to reset target after flashing")?;
         core.run().context("Failed to resume target after reset")?;
     } else {
         log!("Leaving target in probe-rs default post-flash state");

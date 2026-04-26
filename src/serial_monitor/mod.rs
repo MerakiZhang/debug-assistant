@@ -4,6 +4,7 @@ pub mod ui;
 pub use state::SerialMonitorState;
 
 use crate::event::AppEvent;
+use crate::log_export;
 use crossterm::event::{KeyCode, KeyModifiers};
 use state::Focus;
 use std::sync::mpsc;
@@ -11,7 +12,6 @@ use std::sync::mpsc;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     None,
-    Quit,
 }
 
 pub fn render(frame: &mut ratatui::Frame, state: &SerialMonitorState) {
@@ -33,9 +33,6 @@ pub fn handle_key(
 
     // Global shortcuts
     match (code, mods) {
-        (KeyCode::Char('q'), KeyModifiers::NONE) => {
-            return Ok(Action::Quit);
-        }
         (KeyCode::F(1), _) => {
             state.prev_focus = state.focus;
             state.show_help = true;
@@ -61,6 +58,14 @@ pub fn handle_key(
             }
             return Ok(Action::None);
         }
+        (KeyCode::F(6), _) => {
+            copy_log_to_clipboard(state);
+            return Ok(Action::None);
+        }
+        (KeyCode::F(7), _) => {
+            save_log_to_file(state);
+            return Ok(Action::None);
+        }
         (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
             state.disconnect();
             return Ok(Action::None);
@@ -83,6 +88,22 @@ pub fn handle_key(
         Focus::HelpOverlay => {}
     }
     Ok(Action::None)
+}
+
+fn copy_log_to_clipboard(state: &mut SerialMonitorState) {
+    let text = state.export_log_text();
+    match log_export::copy_to_clipboard(&text) {
+        Ok(()) => state.push_status("Log copied to clipboard".to_string()),
+        Err(e) => state.push_status(format!("Copy log failed: {}", e)),
+    }
+}
+
+fn save_log_to_file(state: &mut SerialMonitorState) {
+    let text = state.export_log_text();
+    match log_export::save_log("serial", &text) {
+        Ok(path) => state.push_status(format!("Log saved to {}", path.display())),
+        Err(e) => state.push_status(format!("Save log failed: {}", e)),
+    }
 }
 
 fn handle_config_key(

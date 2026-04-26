@@ -1,4 +1,4 @@
-pub const MENU_ITEMS: &[&str] = &["Serial Monitor", "STM32 Flasher", "Quit"];
+pub const MENU_ITEMS: &[&str] = &["Serial", "JTAG", "SWD", "Quit"];
 
 pub struct HomeState {
     pub selected: usize,

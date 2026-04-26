@@ -1,6 +1,6 @@
 mod protocol;
 
-use super::state::{FlasherState, IspAutoProfile, IspBootMode};
+use super::state::{FlasherState, IspBootMode};
 use crate::event::AppEvent;
 use anyhow::{bail, Context};
 use ihex::Record;
@@ -35,7 +35,6 @@ struct FirmwareImage {
 #[derive(Debug, Clone, Copy)]
 struct IspBootConfig {
     mode: IspBootMode,
-    auto_profile: IspAutoProfile,
 }
 
 struct SessionLogGuard {
@@ -107,7 +106,6 @@ pub fn start_flash(state: &mut FlasherState, tx: mpsc::Sender<AppEvent>) -> anyh
     let baud = state.isp_baud();
     let boot = IspBootConfig {
         mode: state.isp_boot_mode,
-        auto_profile: state.isp_auto_profile,
     };
     let stop_flag = Arc::new(AtomicBool::new(false));
     state.stop_flag = Some(stop_flag.clone());
@@ -259,7 +257,9 @@ fn run_isp(
                                 erase_done = true;
                                 break 'sync;
                             }
-                            Err(err) if err.to_string().contains("ExtendedErase command rejected") => {
+                            Err(err)
+                                if err.to_string().contains("ExtendedErase command rejected") =>
+                            {
                                 log!(
                                     "ExtendedErase setup failed at {} baud: {}. Re-entering bootloader or stepping down.",
                                     try_baud,
@@ -288,11 +288,12 @@ fn run_isp(
             IspBootMode::Manual => {
                 "Hint: ensure BOOT0=HIGH and target has been reset into ROM bootloader."
             }
-            IspBootMode::Auto => {
-                "Hint: try switching Auto Mode profile, check RTS->BOOT0 and DTR->RESET wiring."
-            }
+            IspBootMode::Auto => "Hint: check RTS->BOOT0 and DTR->RESET wiring.",
         };
-        bail!("Sync/GetID/erase-setup failed after multiple retries. {}", hint);
+        bail!(
+            "Sync/GetID/erase-setup failed after multiple retries. {}",
+            hint
+        );
     }
 
     check_stop!();
@@ -345,24 +346,20 @@ fn enter_bootloader(
             .ok();
             Ok(())
         }
-        IspBootMode::Auto => auto_enter_bootloader(port, boot.auto_profile, tx),
+        IspBootMode::Auto => auto_enter_bootloader(port, tx),
     }
 }
 
 fn auto_enter_bootloader(
     port: &mut dyn SerialPort,
-    profile: IspAutoProfile,
     tx: &mpsc::Sender<AppEvent>,
 ) -> anyhow::Result<()> {
-    let (boot_asserted, reset_asserted, profile_label) = match profile {
-        IspAutoProfile::Standard => (true, true, "BOOT0=High, RESET=Low"),
-        IspAutoProfile::Inverted => (false, false, "BOOT0=Low, RESET=High"),
-    };
+    let boot_asserted = true;
+    let reset_asserted = true;
 
-    tx.send(AppEvent::FlasherLog(format!(
-        "Auto boot mode: driving RTS->BOOT0 and DTR->RESET with profile '{}'...",
-        profile_label
-    )))
+    tx.send(AppEvent::FlasherLog(
+        "Auto boot mode: driving RTS->BOOT0 high and pulsing DTR->RESET low...".into(),
+    ))
     .ok();
 
     // Assume RTS controls BOOT0 and DTR controls RESET through an inverter stage.

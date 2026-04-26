@@ -287,6 +287,14 @@ impl SerialMonitorState {
         self.rx_last_data = None;
     }
 
+    pub fn export_log_text(&self) -> String {
+        self.log
+            .iter()
+            .map(format_log_entry_for_export)
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
     pub fn ensure_auto_scroll(&mut self) {
         if self.auto_scroll {
             let visible = self.rx_visible_rows.get() as usize;
@@ -586,6 +594,55 @@ impl SerialMonitorState {
             }
         }
     }
+}
+
+fn format_log_entry_for_export(entry: &LogEntry) -> String {
+    let ts = entry.timestamp.format("%Y-%m-%d %H:%M:%S%.3f");
+    match entry.direction {
+        Direction::Status => format!("[{} STATUS] {}", ts, decode_export_text(&entry.raw)),
+        Direction::Rx => format!("[{} RX] {}", ts, decode_export_text(&entry.raw)),
+        Direction::Tx => format!("[{} TX] {}", ts, decode_export_text(&entry.raw)),
+    }
+}
+
+fn decode_export_text(raw: &[u8]) -> String {
+    let mut out = String::with_capacity(raw.len());
+    let mut i = 0;
+    while i < raw.len() {
+        match std::str::from_utf8(&raw[i..]) {
+            Ok(s) => {
+                for c in s.chars() {
+                    match c {
+                        '\r' => out.push_str("\\r"),
+                        '\n' => out.push_str("\\n"),
+                        '\t' => out.push_str("\\t"),
+                        c if c.is_control() => out.push_str(&format!("[{:02X}]", c as u32)),
+                        c => out.push(c),
+                    }
+                }
+                break;
+            }
+            Err(e) => {
+                let valid = std::str::from_utf8(&raw[i..i + e.valid_up_to()]).unwrap();
+                for c in valid.chars() {
+                    match c {
+                        '\r' => out.push_str("\\r"),
+                        '\n' => out.push_str("\\n"),
+                        '\t' => out.push_str("\\t"),
+                        c if c.is_control() => out.push_str(&format!("[{:02X}]", c as u32)),
+                        c => out.push(c),
+                    }
+                }
+                i += e.valid_up_to();
+                let bad = e.error_len().unwrap_or(1);
+                for &b in &raw[i..i + bad] {
+                    out.push_str(&format!("\\x{:02X}", b));
+                }
+                i += bad;
+            }
+        }
+    }
+    out
 }
 
 fn parse_hex_input(s: &str) -> anyhow::Result<Vec<u8>> {

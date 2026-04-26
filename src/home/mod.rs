@@ -4,11 +4,13 @@ mod ui;
 pub use state::HomeState;
 use state::MENU_ITEMS;
 
+use crate::flasher::state::FlasherMethod;
 use crate::root_app::Screen;
 use crossterm::event::{KeyCode, KeyModifiers};
 
 pub enum HomeAction {
     Navigate(Screen),
+    OpenFlasher(FlasherMethod),
     Quit,
 }
 
@@ -30,8 +32,9 @@ pub fn handle_key(state: &mut HomeState, code: KeyCode, _mods: KeyModifiers) -> 
         }
         KeyCode::Enter => {
             return Some(match state.selected {
-                0 => HomeAction::Navigate(Screen::SerialMonitor),
-                1 => HomeAction::Navigate(Screen::Flasher),
+                0 => HomeAction::Navigate(Screen::Serial),
+                1 => HomeAction::OpenFlasher(FlasherMethod::Jtag),
+                2 => HomeAction::OpenFlasher(FlasherMethod::Swd),
                 _ => HomeAction::Quit,
             });
         }
