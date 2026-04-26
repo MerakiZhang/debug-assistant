@@ -85,10 +85,10 @@ impl RootApp {
             },
 
             Screen::SerialMonitor => {
-                // Esc returns to the Serial protocol page when no popup/overlay is open.
+                // Esc returns to the Serial protocol page when not in Setup or help overlay.
                 if code == KeyCode::Esc
                     && mods == KeyModifiers::NONE
-                    && !self.serial_monitor.show_config
+                    && self.serial_monitor.focus != serial_monitor::state::Focus::Setup
                     && !self.serial_monitor.show_help
                 {
                     self.serial_monitor.disconnect();

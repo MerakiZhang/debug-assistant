@@ -12,9 +12,9 @@ const MAX_LOG_ENTRIES: usize = 5000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
+    Setup,
     Receive,
     Send,
-    ConfigPopup,
     HelpOverlay,
 }
 
@@ -153,7 +153,6 @@ pub struct SerialMonitorState {
     // UI
     pub focus: Focus,
     pub prev_focus: Focus,
-    pub show_config: bool,
     pub show_help: bool,
     // config popup draft
     pub config_draft: SerialConfig,
@@ -192,13 +191,12 @@ impl SerialMonitorState {
             bytes_rx: 0,
             focus: Focus::Send,
             prev_focus: Focus::Send,
-            show_config: false,
             show_help: false,
             config_draft: SerialConfig::default(),
             config_field: ConfigField::PortName,
             config_port_list: Vec::new(),
             config_port_idx: 0,
-            config_baud_idx: 9,     // 115200
+            config_baud_idx: 7,     // 115200
             config_databits_idx: 3, // Eight
             config_stopbits_idx: 0, // One
             config_parity_idx: 0,   // None
@@ -316,7 +314,17 @@ impl SerialMonitorState {
         }
     }
 
-    pub fn open_config_popup(&mut self) {
+    pub fn focus_setup(&mut self) {
+        if self.focus == Focus::Setup {
+            return;
+        }
+        self.refresh_port_list();
+        self.config_field = ConfigField::PortName;
+        self.prev_focus = self.focus;
+        self.focus = Focus::Setup;
+    }
+
+    pub fn refresh_port_list(&mut self) {
         self.config_draft = self.serial_config.clone();
         self.config_port_list = serialport::available_ports()
             .unwrap_or_default()
@@ -326,7 +334,6 @@ impl SerialMonitorState {
         if self.config_port_list.is_empty() {
             self.config_port_list.push(String::from("(no ports found)"));
         }
-
         self.config_port_idx = self
             .config_port_list
             .iter()
@@ -335,7 +342,7 @@ impl SerialMonitorState {
         self.config_baud_idx = BAUD_PRESETS
             .iter()
             .position(|&b| b == self.serial_config.baud_rate)
-            .unwrap_or(9);
+            .unwrap_or(7);
         self.config_databits_idx = DATA_BITS_OPTIONS
             .iter()
             .position(|&d| d == self.serial_config.data_bits)
@@ -352,14 +359,9 @@ impl SerialMonitorState {
             .iter()
             .position(|&f| f == self.serial_config.flow_control)
             .unwrap_or(0);
-
-        self.config_field = ConfigField::PortName;
-        self.prev_focus = self.focus;
-        self.show_config = true;
-        self.focus = Focus::ConfigPopup;
     }
 
-    pub fn apply_config_and_close(&mut self, event_tx: Sender<AppEvent>) -> anyhow::Result<()> {
+    pub fn apply_setup(&mut self, event_tx: Sender<AppEvent>) -> anyhow::Result<()> {
         if !self.config_port_list.is_empty() {
             self.config_draft.port_name = self.config_port_list[self.config_port_idx].clone();
         }
@@ -375,14 +377,12 @@ impl SerialMonitorState {
         }
         self.connect(event_tx)?;
 
-        self.show_config = false;
         self.focus = Focus::Send;
         Ok(())
     }
 
-    pub fn cancel_config(&mut self) {
-        self.show_config = false;
-        self.focus = self.prev_focus;
+    pub fn cancel_setup(&mut self) {
+        self.focus = Focus::Send;
     }
 
     pub fn connect(&mut self, event_tx: Sender<AppEvent>) -> anyhow::Result<()> {

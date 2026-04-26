@@ -39,8 +39,8 @@ pub fn handle_key(
             state.focus = Focus::HelpOverlay;
             return Ok(Action::None);
         }
-        (KeyCode::F(2), _) if !state.show_config => {
-            state.open_config_popup();
+        (KeyCode::F(2), _) => {
+            state.focus_setup();
             return Ok(Action::None);
         }
         (KeyCode::F(3), _) => {
@@ -66,15 +66,28 @@ pub fn handle_key(
             save_log_to_file(state);
             return Ok(Action::None);
         }
-        (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
-            state.disconnect();
+        // Tab cycles focus: Setup → Receive → Send → Setup
+        (KeyCode::Tab, KeyModifiers::NONE) => {
+            state.focus = match state.focus {
+                Focus::Setup => Focus::Receive,
+                Focus::Receive => Focus::Send,
+                Focus::Send => {
+                    state.focus_setup();
+                    return Ok(Action::None);
+                }
+                Focus::HelpOverlay => Focus::Send,
+            };
             return Ok(Action::None);
         }
-        (KeyCode::Tab, KeyModifiers::NONE) if !state.show_config => {
+        (KeyCode::BackTab, _) => {
             state.focus = match state.focus {
-                Focus::Receive => Focus::Send,
+                Focus::Setup => Focus::Send,
+                Focus::Receive => {
+                    state.focus_setup();
+                    return Ok(Action::None);
+                }
                 Focus::Send => Focus::Receive,
-                other => other,
+                Focus::HelpOverlay => Focus::Send,
             };
             return Ok(Action::None);
         }
@@ -82,7 +95,7 @@ pub fn handle_key(
     }
 
     match state.focus {
-        Focus::ConfigPopup => handle_config_key(state, code, mods, tx)?,
+        Focus::Setup => handle_setup_key(state, code, mods, tx)?,
         Focus::Send => handle_send_key(state, code, mods)?,
         Focus::Receive => handle_receive_key(state, code, mods),
         Focus::HelpOverlay => {}
@@ -106,25 +119,34 @@ fn save_log_to_file(state: &mut SerialMonitorState) {
     }
 }
 
-fn handle_config_key(
+fn handle_setup_key(
     state: &mut SerialMonitorState,
     code: KeyCode,
-    _mods: KeyModifiers,
+    mods: KeyModifiers,
     tx: mpsc::Sender<AppEvent>,
 ) -> anyhow::Result<()> {
-    match code {
-        KeyCode::Esc => state.cancel_config(),
-        KeyCode::Enter => {
-            if let Err(e) = state.apply_config_and_close(tx) {
-                state.show_config = false;
+    use state::ConfigField;
+    match (code, mods) {
+        (KeyCode::Esc, _) => state.cancel_setup(),
+        (KeyCode::Enter, _) => {
+            if let Err(e) = state.apply_setup(tx) {
                 state.focus = Focus::Send;
                 state.push_status(format!("Connect failed: {}", e));
             }
         }
-        KeyCode::Up | KeyCode::BackTab => state.config_field = state.config_field.prev(),
-        KeyCode::Down | KeyCode::Tab => state.config_field = state.config_field.next(),
-        KeyCode::Left => state.config_field_prev_option(),
-        KeyCode::Right => state.config_field_next_option(),
+        (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
+            state.disconnect();
+            state.focus = Focus::Send;
+        }
+        (KeyCode::Char('r'), KeyModifiers::NONE)
+            if state.config_field == ConfigField::PortName =>
+        {
+            state.refresh_port_list();
+        }
+        (KeyCode::Up, _) => state.config_field = state.config_field.prev(),
+        (KeyCode::Down, _) => state.config_field = state.config_field.next(),
+        (KeyCode::Left, _) => state.config_field_prev_option(),
+        (KeyCode::Right, _) => state.config_field_next_option(),
         _ => {}
     }
     Ok(())
@@ -150,6 +172,9 @@ fn handle_send_key(
                     Err(_) => state.push_status("Send failed: disconnected".to_string()),
                 }
             }
+        }
+        (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
+            state.disconnect();
         }
         (KeyCode::Up, _) => state.history_up(),
         (KeyCode::Down, _) => state.history_down(),

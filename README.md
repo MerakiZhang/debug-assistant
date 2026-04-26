@@ -1,270 +1,257 @@
 # Debug Assistant
 
-Debug Assistant 是一个运行在终端里的 MCU 调试和固件下载工具，面向 STM32 常见开发流程：串口调试、USART ISP 下载、JTAG 下载和 SWD 下载。
+![version](https://img.shields.io/badge/version-0.1.2-blue)
+![platform](https://img.shields.io/badge/platform-Windows-lightgrey)
+![license](https://img.shields.io/badge/license-MIT-green)
 
-启动后先选择协议入口，再进入对应工作台。所有操作都可以用键盘完成。
+运行在终端里的 MCU 调试和固件下载工具，面向 STM32 常见开发流程：串口调试、USART ISP 下载、JTAG 下载和 SWD 下载。全键盘操作，不依赖 GUI 框架。
 
 ![主界面](images/主界面.png)
 
-## 能做什么
+---
 
-| 入口 | 适合场景 |
-|------|----------|
-| **Serial** | 串口收发调试，或通过 STM32 USART Bootloader 下载固件 |
-| **JTAG** | 使用调试探针通过 JTAG 给 STM32 下载固件 |
-| **SWD** | 使用调试探针通过 SWD 给 STM32 下载固件 |
+## 功能概览
+
+| 入口 | 用途 |
+|------|------|
+| **Serial Monitor** | 串口收发调试终端，支持 ASCII / HEX / BOTH 显示、发送历史、日志导出 |
+| **USART ISP Flash** | 通过 STM32 ROM Bootloader 下载 `.bin` / `.hex` 固件，支持手动和自动进入 Bootloader |
+| **JTAG Flash** | 通过调试探针使用 JTAG 协议烧录固件，支持芯片预设和手动输入 |
+| **SWD Flash** | 通过调试探针使用 SWD 协议烧录固件，支持 Under Reset 连接模式 |
+
+---
 
 ## 快速开始
 
-1. 安装探针驱动或串口驱动，确认系统能识别设备。
-2. 构建并运行程序。
-3. 在首页用 `↑ / ↓` 选择 `Serial`、`JTAG` 或 `SWD`。
-4. 按 `Enter` 进入工作台。
-5. 填好端口、探针、芯片名和固件路径。
-6. 按 `Enter` 开始连接或下载。
+**前置条件**
 
-## Serial 怎么用
+- Rust 稳定版工具链（`rustup` 安装）
+- 串口驱动或探针驱动已就位，系统能识别设备
 
-进入 `Serial` 后可以选择两个功能：
+**构建并运行**
 
-| 功能 | 用途 |
-|------|------|
-| **Serial Monitor** | 普通串口终端，适合看日志、发命令、收发 HEX 数据 |
-| **USART ISP Flash** | 通过 STM32 ROM Bootloader 下载 `.bin` 或 `.hex` 固件 |
+```bash
+# 开发版本
+cargo run
 
-### Serial Monitor
+# 发布版本（推荐日常使用）
+cargo run --release
+```
 
-常用流程：
+**操作流程**
 
-1. 按 `F2` 打开串口配置。
-2. 选择串口号、波特率、数据位、停止位、校验位和流控。
-3. 连接后查看接收区日志。
-4. 在发送区输入文本或 HEX 数据。
-5. 需要保存问题现场时，按 `F6` 复制日志或 `F7` 保存日志。
+1. 启动后用 `↑ / ↓` 在首页选择协议入口。
+2. 按 `Enter` 进入工作台。
+3. 在 Setup 面板配置好参数后按 `Enter` 连接或开始烧录。
+4. 按 `Esc` 返回上一层，`Ctrl+C` 随时退出。
 
-支持能力：
+---
 
-- ASCII、HEX、BOTH 三种显示模式。
-- 文本发送和 HEX 发送。
-- 发送历史。
-- 换行后缀开关。
-- 自动滚动开关。
-- 收发字节统计和时间戳。
-- 串口异常时自动断开并显示状态。
+## Serial Monitor
 
-### USART ISP Flash
+串口通信终端。进入后左侧是 Setup 面板（连接配置和状态），右侧是流量监视区，底部是发送行。
 
-常用流程：
+**使用流程**
 
-1. 选择串口。
-2. 选择波特率。
-3. 选择 Boot 模式：`Manual` 或 `Auto`。
-4. 输入 `.bin` 或 `.hex` 固件路径。
-5. 按 `Enter` 开始下载。
+1. 按 `Tab` 或 `F2` 将焦点切换到 Setup 面板。
+2. `↑ / ↓` 导航字段，`← / →` 切换选项，`R`（在 Port 字段）刷新串口列表。
+3. 配置好 Port / Baud / Data / Stop / Parity / Flow 后按 `Enter` 连接。
+4. `Tab` 切到 Send 面板输入发送内容，`Enter` 发送。
+5. `Tab` 切到 Receive 面板用方向键滚动日志。
+6. `F6` 复制日志，`F7` 保存日志到 `logs/`。
 
-Boot 模式说明：
+**支持能力**
+
+- 波特率预设：1200 / 2400 / 4800 / 9600 / 19200 / 38400 / 57600 / 115200 / 230400 / 460800 / 921600
+- ASCII、HEX、BOTH 三种显示模式（`F4` 切换）
+- 文本发送和 HEX 发送（`Ctrl+H` 切换）
+- 换行后缀：None / CR / LF / CRLF（`Ctrl+N` 切换）
+- 发送历史（`↑ / ↓` 浏览）
+- 自动滚动开关（`F5`）
+- 收发字节统计和时间戳
+- 串口异常时自动断开并显示状态
+
+---
+
+## USART ISP Flash
+
+通过 STM32 USART Bootloader（AN3155 协议）下载固件，不需要调试探针。
+
+**使用流程**
+
+1. 选择串口和波特率。
+2. 选择 Boot 模式。
+3. 输入 `.bin` 或 `.hex` 固件路径。
+4. 按 `Enter` 开始下载。
+
+**Boot 模式**
 
 | 模式 | 说明 |
 |------|------|
-| **Manual** | 用户自己让芯片进入 STM32 Bootloader，例如 BOOT0 拉高后复位 |
-| **Auto** | 软件通过 RTS/DTR 控制 BOOT0/RESET，自动尝试进入 Bootloader |
+| **Manual** | 用户手动让芯片进入 Bootloader（BOOT0 拉高后复位） |
+| **Auto** | 软件通过 RTS → BOOT0、DTR → RESET 自动控制进入 Bootloader |
 
-Auto 模式默认线路：
+> 如果 Serial Monitor 正在占用同一个串口，ISP 下载前会自动断开，完成后自动恢复。
 
-- `RTS -> BOOT0 high`
-- `DTR -> RESET low pulse`
+---
 
-如果 Serial Monitor 正在占用同一个串口，USART ISP 下载前会自动断开，下载完成后会尝试恢复串口监视连接。
+## JTAG Flash
 
-## JTAG 怎么用
+通过调试探针使用 JTAG 协议烧录固件。
 
-JTAG 工作台用于通过调试探针下载 STM32 固件。它不是完整调试器，不提供断点、单步、寄存器查看等调试功能。
+**使用流程**
 
-常用流程：
+1. 选择 `Probe`，按 `R` 可刷新探针列表。
+2. 设置 `Speed`（kHz）。
+3. 按需开启 `Verify`（烧录后校验）和 `Reset`（烧录完成后复位运行）。
+4. 下载 `.bin` 时确认 `Base` 地址（STM32 内部 Flash 通常为 `0x08000000`）。
+5. 选择 `Preset`，或在 `Chip` 字段手动输入 probe-rs 目标名称。
+6. 输入固件路径，按 `Enter` 开始烧录。
 
-1. 选择 `Probe`。
-2. 选择 `Speed`。
-3. 按需开启或关闭 `Verify`。
-4. 按需开启或关闭 `Reset`。
-5. 如果下载 `.bin`，确认 `Base` 是正确的 Flash 起始地址，例如 `0x08000000`。
-6. 选择 `Preset`，或手动输入 `Chip`。
-7. 输入 `.bin` 或 `.hex` 固件路径。
-8. 按 `Enter` 开始下载。
+---
 
-JTAG 支持能力：
+## SWD Flash
 
-- 枚举和选择调试探针。
-- 设置 JTAG 通信速度。
-- 常用 STM32 芯片预设。
-- 手动输入目标芯片名称。
-- `.bin` 和 `.hex` 固件下载。
-- `.bin` 基地址设置。
-- 烧录后校验。
-- 烧录完成后 reset + run。
-- 下载日志和进度显示。
-- 日志复制和保存。
+通过调试探针使用 SWD 协议烧录固件，流程与 JTAG 基本相同，多一个连接模式选项。
 
-## SWD 怎么用
+| 连接模式 | 说明 |
+|----------|------|
+| **Normal** | 普通附加，适合大多数情况 |
+| **Under Reset** | 在复位状态下附加，用于普通模式无法连接时 |
 
-SWD 工作台用于通过调试探针下载 STM32 固件，配置项比 JTAG 多一个连接模式。
+---
 
-常用流程：
-
-1. 选择 `Probe`。
-2. 选择 `Speed`。
-3. 选择连接模式：`Normal` 或 `Under Reset`。
-4. 按需开启或关闭 `Verify`。
-5. 按需开启或关闭 `Reset`。
-6. 如果下载 `.bin`，确认 `Base` 是正确的 Flash 起始地址。
-7. 选择 `Preset`，或手动输入 `Chip`。
-8. 输入 `.bin` 或 `.hex` 固件路径。
-9. 按 `Enter` 开始下载。
-
-SWD 支持能力：
-
-- 枚举和选择调试探针。
-- 设置 SWD 通信速度。
-- 普通连接和 Under Reset 连接。
-- 常用 STM32 芯片预设。
-- 手动输入目标芯片名称。
-- `.bin` 和 `.hex` 固件下载。
-- `.bin` 基地址设置。
-- 烧录后校验。
-- 烧录完成后 reset + run。
-- 下载日志和进度显示。
-- 日志复制和保存。
-
-## 常用按键
+## 键盘快捷键
 
 ### 全局
 
 | 按键 | 功能 |
 |------|------|
-| `↑ / ↓` | 选择项目或滚动当前区域 |
-| `Enter` | 打开、确认或开始 |
-| `Esc` | 返回上一层；下载中用于请求取消 |
-| `q` | 仅在导航页退出程序 |
-| `Ctrl+C` | 任意页面退出；下载中会先请求停止 |
+| `↑ / ↓` | 选择项目 / 滚动 |
+| `Enter` | 确认 / 打开 / 开始 |
+| `Esc` | 返回上一层 |
+| `Ctrl+C` | 退出程序 |
 
 ### Serial Monitor
 
 | 按键 | 功能 |
 |------|------|
+| `Tab` | 循环切换焦点：Setup → Receive → Send |
+| `Shift+Tab` | 反向切换焦点 |
 | `F1` | 打开帮助 |
-| `F2` | 打开串口配置 |
+| `F2` | 跳到 Setup 面板 |
 | `F3` | 清空接收日志 |
-| `F4` | 切换显示模式 |
+| `F4` | 切换显示模式（ASCII → HEX → BOTH） |
 | `F5` | 切换自动滚动 |
-| `F6` | 复制串口日志到剪贴板 |
-| `F7` | 保存串口日志到 `logs/` |
-| `Tab` | 切换接收区和发送区焦点 |
+| `F6` | 复制日志到剪贴板 |
+| `F7` | 保存日志到 `logs/` |
 | `Ctrl+D` | 断开连接 |
+
+**Setup 面板（Tab / F2 进入）**
+
+| 按键 | 功能 |
+|------|------|
+| `↑ / ↓` | 导航字段 |
+| `← / →` | 修改当前字段值 |
+| `R` | 刷新串口列表（焦点在 Port 字段时） |
+| `Enter` | 应用配置并连接 / 重连 |
+| `Ctrl+D` | 仅断开连接 |
+| `Esc` | 丢弃修改，焦点回到 Send |
+
+**Send 面板**
+
+| 按键 | 功能 |
+|------|------|
+| `Enter` | 发送 |
+| `↑ / ↓` | 浏览发送历史 |
+| `← / →` | 移动光标 |
+| `Home / End` | 光标跳首 / 尾 |
+| `Backspace / Del` | 删除字符 |
 | `Ctrl+H` | 切换 HEX 发送模式 |
-| `Ctrl+N` | 切换换行后缀 |
+| `Ctrl+N` | 切换换行后缀（None → CR → LF → CRLF） |
 
 ### Flash 工作台
 
-适用于 `USART ISP Flash`、`JTAG` 和 `SWD`。
+适用于 USART ISP、JTAG 和 SWD。
+
+**配置阶段**
 
 | 按键 | 功能 |
 |------|------|
-| `Tab / Shift+Tab` | 切换配置项 |
-| `← / →` | 修改当前选项 |
-| `Backspace` | 删除输入字符 |
-| `R` | 在探针字段刷新探针列表 |
-| `F6` | 复制下载日志到剪贴板 |
-| `F7` | 保存下载日志到 `logs/` |
-| `Enter` | 开始下载 |
+| `↑ / ↓` 或 `Tab / Shift+Tab` | 切换字段 |
+| `← / →` | 修改选项 |
+| `R` | 刷新探针列表（在 Probe 字段） |
+| `F6` | 复制日志 |
+| `F7` | 保存日志 |
+| `Enter` | 开始烧录 |
 | `Esc` | 返回上一层 |
 
-下载过程中：
+**烧录进行中**
 
 | 按键 | 功能 |
 |------|------|
-| `↑ / ↓` | 滚动日志 |
-| `PgUp / PgDn` | 翻页滚动日志 |
-| `Home / End` | 跳到日志顶部或底部 |
-| `F6` | 复制下载日志到剪贴板 |
-| `F7` | 保存下载日志到 `logs/` |
-| `Esc` | 第一次提示取消，第二次请求停止下载 |
-| `Ctrl+C` | 请求停止并退出程序 |
+| `↑ / ↓ / PgUp / PgDn / Home / End` | 滚动操作日志 |
+| `F6` | 复制日志 |
+| `F7` | 保存日志 |
+| `Esc` | 第一次：提示取消；第二次：请求停止 |
 
-## 日志保存在哪里
+---
 
-按 `F7` 保存日志后，文件会写入项目运行目录下的 `logs/` 文件夹。
+## 日志文件
 
-日志文件名示例：
+按 `F7` 保存的日志写入程序运行目录下的 `logs/` 文件夹：
 
-```text
+```
 logs/serial-20260426-153012.log
 logs/flasher-20260426-153045.log
 ```
 
-## 固件路径和芯片名注意事项
+---
 
-- `.hex` 文件自带地址，通常不需要关心 base address。
-- `.bin` 文件不带地址，必须确认 `Base` 正确；STM32 内部 Flash 常见起始地址是 `0x08000000`。
-- JTAG/SWD 的 `Chip` 名称需要是 `probe-rs` 识别的目标名称。
-- 如果不确定芯片名，优先使用 `Preset`。
-- 如果 SWD attach 失败，可以尝试 `Under Reset`。
-- 如果探针列表为空，先检查驱动、USB 连接和是否被其他工具占用。
+## 注意事项
+
+- `.hex` 文件自带地址，无需关心 Base 地址。
+- `.bin` 文件不含地址，必须确认 `Base` 正确；STM32 内部 Flash 起始地址通常为 `0x08000000`。
+- JTAG / SWD 的 `Chip` 名称需要是 probe-rs 可识别的目标名称，不确定时优先使用 `Preset`。
+- SWD 无法附加时，尝试切换到 `Under Reset` 模式。
+- 探针列表为空时，检查驱动、USB 连接，以及是否被其他工具占用。
+
+---
 
 ## 构建
 
-需要先安装 Rust 稳定版工具链和 Cargo。
-
-构建 debug 版本：
-
 ```bash
+# debug
 cargo build
-```
 
-构建 release 版本：
-
-```bash
+# release
 cargo build --release
 ```
 
-Windows 下默认产物路径：
+产物路径（Windows）：
 
-```text
+```
 target/debug/debug-assistant.exe
 target/release/debug-assistant.exe
 ```
 
-## 运行
-
-开发运行：
-
-```bash
-cargo run
-```
-
-release 运行：
-
-```bash
-cargo run --release
-```
-
-或直接运行已构建的可执行文件：
-
-```text
-target/release/debug-assistant.exe
-```
+---
 
 ## 依赖
 
 | 库 | 用途 |
 |----|------|
-| [ratatui](https://github.com/ratatui/ratatui) | 终端界面 |
-| [crossterm](https://github.com/crossterm-rs/crossterm) | 终端输入输出 |
+| [ratatui](https://github.com/ratatui/ratatui) | 终端界面框架 |
+| [crossterm](https://github.com/crossterm-rs/crossterm) | 跨平台终端 I/O |
 | [serialport](https://github.com/serialport/serialport-rs) | 串口通信 |
-| [probe-rs](https://github.com/probe-rs/probe-rs) | JTAG/SWD 调试探针通信 |
-| [ihex](https://github.com/mciantyre/ihex) | HEX 文件解析 |
+| [probe-rs](https://github.com/probe-rs/probe-rs) | JTAG / SWD 调试探针通信 |
+| [ihex](https://github.com/mciantyre/ihex) | Intel HEX 文件解析 |
 | [chrono](https://github.com/chronotope/chrono) | 时间戳 |
-| [unicode-width](https://github.com/unicode-rs/unicode-width) | 中文宽字符处理 |
+| [unicode-width](https://github.com/unicode-rs/unicode-width) | Unicode 宽字符处理 |
 | [arboard](https://github.com/1Password/arboard) | 系统剪贴板 |
 | [anyhow](https://github.com/dtolnay/anyhow) | 错误处理 |
+
+---
 
 ## 许可证
 

@@ -6,7 +6,7 @@ use crate::serial::{
 use crate::ui_theme as theme;
 use ratatui::{
     layout::{Constraint, Layout, Margin, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
     Frame,
@@ -22,38 +22,28 @@ pub fn render(frame: &mut Frame, state: &SerialMonitorState) {
             Constraint::Length(1),
         ])
         .areas(area);
-        let [link_area, traffic_area] =
+        let [setup_area, traffic_area] =
             Layout::horizontal([Constraint::Length(28), Constraint::Fill(1)]).areas(workspace);
 
-        render_link_panel(frame, state, link_area);
+        render_setup_panel(frame, state, setup_area);
         render_traffic_panel(frame, state, traffic_area);
         render_send_line(frame, state, tx_area);
         render_shortcuts_bar(frame, shortcuts_area);
     } else {
-        let [link_area, traffic_area, tx_area, shortcuts_area] = Layout::vertical([
-            Constraint::Length(8),
+        let [setup_area, traffic_area, tx_area, shortcuts_area] = Layout::vertical([
+            Constraint::Length(10),
             Constraint::Fill(1),
             Constraint::Length(4),
             Constraint::Length(1),
         ])
         .areas(area);
 
-        render_link_panel(frame, state, link_area);
+        render_setup_panel(frame, state, setup_area);
         render_traffic_panel(frame, state, traffic_area);
         render_send_line(frame, state, tx_area);
         render_shortcuts_bar(frame, shortcuts_area);
     }
 
-    if state.show_config {
-        let area = frame.area();
-        let popup = if area.width >= 100 {
-            centered_rect(68, 62, area)
-        } else {
-            centered_rect(88, 76, area)
-        };
-        frame.render_widget(Clear, popup);
-        render_config_popup(frame, state, popup);
-    }
     if state.show_help {
         let popup = centered_rect(52, 88, frame.area());
         frame.render_widget(Clear, popup);
@@ -61,7 +51,31 @@ pub fn render(frame: &mut Frame, state: &SerialMonitorState) {
     }
 }
 
-fn render_link_panel(frame: &mut Frame, state: &SerialMonitorState, area: Rect) {
+fn render_setup_panel(frame: &mut Frame, state: &SerialMonitorState, area: Rect) {
+    let focused = state.focus == Focus::Setup;
+    let border_color = if focused { theme::ACCENT } else { theme::MUTED };
+
+    let title = if focused {
+        " Serial Setup "
+    } else {
+        " Serial Link "
+    };
+
+    let block = Block::new()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(border_color));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    if focused {
+        render_setup_fields(frame, state, inner);
+    } else {
+        render_link_status(frame, state, inner);
+    }
+}
+
+fn render_link_status(frame: &mut Frame, state: &SerialMonitorState, area: Rect) {
     let (symbol, sym_color, label) = if state.connected {
         ("●", theme::SUCCESS, "CONNECTED")
     } else {
@@ -107,16 +121,106 @@ fn render_link_panel(frame: &mut Frame, state: &SerialMonitorState, area: Rect) 
             fmt_bytes(state.bytes_rx),
             fmt_bytes(state.bytes_tx)
         )),
+        Line::from(""),
+        Line::from(Span::styled(
+            "  Tab / F2: Setup",
+            theme::muted_style(),
+        )),
     ];
 
-    frame.render_widget(
-        Paragraph::new(lines).block(theme::panel_block(" Serial Link ")),
-        area,
-    );
+    frame.render_widget(Paragraph::new(lines), area);
+}
+
+fn render_setup_fields(frame: &mut Frame, state: &SerialMonitorState, area: Rect) {
+    let port_val = if state.config_port_list.is_empty() {
+        "(none)".to_string()
+    } else {
+        state.config_port_list[state.config_port_idx].clone()
+    };
+
+    let (conn_sym, conn_color, conn_label) = if state.connected {
+        ("●", theme::SUCCESS, "CONNECTED")
+    } else {
+        ("○", theme::DANGER, "DISCONNECTED")
+    };
+
+    let mut lines: Vec<Line<'static>> = vec![
+        Line::from(vec![
+            Span::styled(
+                format!(" {} ", conn_sym),
+                Style::default()
+                    .fg(conn_color)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(conn_label, Style::default().fg(conn_color)),
+        ]),
+        Line::from(""),
+    ];
+
+    let fields: &[(ConfigField, &str, String)] = &[
+        (ConfigField::PortName, "Port ", port_val),
+        (
+            ConfigField::BaudRate,
+            "Baud ",
+            BAUD_PRESETS[state.config_baud_idx].to_string(),
+        ),
+        (
+            ConfigField::DataBits,
+            "Data ",
+            data_bits_label(DATA_BITS_OPTIONS[state.config_databits_idx]).to_string(),
+        ),
+        (
+            ConfigField::StopBits,
+            "Stop ",
+            stop_bits_label(STOP_BITS_OPTIONS[state.config_stopbits_idx]).to_string(),
+        ),
+        (
+            ConfigField::Parity,
+            "Parity",
+            parity_label(PARITY_OPTIONS[state.config_parity_idx]).to_string(),
+        ),
+        (
+            ConfigField::FlowControl,
+            "Flow  ",
+            flow_control_label(FLOW_CONTROL_OPTIONS[state.config_flow_idx]).to_string(),
+        ),
+    ];
+
+    for (field, label, value) in fields {
+        let sel = state.config_field == *field;
+        let style = if sel {
+            theme::selected_style()
+        } else {
+            Style::default()
+        };
+        let arrows = if sel { "◄ ► " } else { "    " };
+        let hint = if sel && *field == ConfigField::PortName {
+            " R:refresh"
+        } else {
+            ""
+        };
+        lines.push(Line::from(vec![
+            Span::styled(if sel { ">" } else { " " }, style),
+            Span::styled(format!(" {} ", label), theme::title_style()),
+            Span::styled(arrows.to_string(), style),
+            Span::styled(value.clone(), style),
+            Span::styled(hint, theme::muted_style()),
+        ]));
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled(" Enter", theme::selected_style()),
+        Span::styled(":Connect  ", theme::muted_style()),
+        Span::styled("Esc", Style::default().fg(theme::DANGER)),
+        Span::styled(":Cancel", theme::muted_style()),
+    ]));
+
+    frame.render_widget(Paragraph::new(lines), area);
 }
 
 fn render_traffic_panel(frame: &mut Frame, state: &SerialMonitorState, area: Rect) {
-    let focused = state.focus == Focus::Receive && !state.show_config && !state.show_help;
+    let focused = state.focus == Focus::Receive;
     let border_style = if focused {
         Style::default().fg(theme::ACCENT)
     } else {
@@ -135,7 +239,7 @@ fn render_traffic_panel(frame: &mut Frame, state: &SerialMonitorState, area: Rec
 
     let lines: Vec<Line<'static>> = if state.log.is_empty() {
         vec![Line::from(Span::styled(
-            "  No traffic yet. Press F2 to configure a serial port.",
+            "  No traffic yet. Press Tab or F2 to configure.",
             theme::muted_style(),
         ))]
     } else {
@@ -221,7 +325,7 @@ fn format_log_entry(entry: &LogEntry, mode: DisplayMode) -> Vec<Line<'static>> {
 }
 
 fn render_send_line(frame: &mut Frame, state: &SerialMonitorState, area: Rect) {
-    let focused = state.focus == Focus::Send && !state.show_config && !state.show_help;
+    let focused = state.focus == Focus::Send;
     let border_style = if focused {
         Style::default().fg(theme::ACCENT)
     } else {
@@ -266,151 +370,11 @@ fn render_send_line(frame: &mut Frame, state: &SerialMonitorState, area: Rect) {
 fn render_shortcuts_bar(frame: &mut Frame, area: Rect) {
     frame.render_widget(
         Paragraph::new(
-            "  F1:Help F2:Config F3:Clear F4:Mode F5:Auto F6:Copy F7:Save Tab:Focus Esc:Serial Ctrl+C:Quit",
+            "  F1:Help F2:Setup F3:Clear F4:Mode F5:Auto F6:Copy F7:Save Tab:Focus Ctrl+D:Disc Esc:Back",
         )
         .style(theme::muted_style()),
         area,
     );
-}
-
-fn render_config_popup(frame: &mut Frame, state: &SerialMonitorState, area: Rect) {
-    let block = theme::active_panel_block(" Serial Link Setup ");
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-
-    let rows = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Length(2),
-        Constraint::Fill(1),
-        Constraint::Length(3),
-        Constraint::Length(1),
-    ])
-    .split(inner);
-
-    let port_val = if state.config_port_list.is_empty() {
-        "(none)".to_string()
-    } else {
-        state.config_port_list[state.config_port_idx].clone()
-    };
-
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled("  Target Port", theme::title_style()),
-            Span::styled("  choose the serial adapter", theme::muted_style()),
-        ])),
-        rows[0],
-    );
-
-    render_config_field_row(
-        frame,
-        rows[1],
-        state.config_field == ConfigField::PortName,
-        "Port",
-        &port_val,
-    );
-
-    let settings_block = theme::panel_block(" Frame Settings ");
-    let settings_inner = settings_block.inner(rows[2]);
-    frame.render_widget(settings_block, rows[2]);
-    let setting_rows = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Fill(1),
-    ])
-    .split(settings_inner);
-
-    let field_rows: &[(ConfigField, &str, String)] = &[
-        (
-            ConfigField::BaudRate,
-            "Baud Rate",
-            BAUD_PRESETS[state.config_baud_idx].to_string(),
-        ),
-        (
-            ConfigField::DataBits,
-            "Data Bits",
-            data_bits_label(DATA_BITS_OPTIONS[state.config_databits_idx]).to_string(),
-        ),
-        (
-            ConfigField::StopBits,
-            "Stop Bits",
-            stop_bits_label(STOP_BITS_OPTIONS[state.config_stopbits_idx]).to_string(),
-        ),
-        (
-            ConfigField::Parity,
-            "Parity",
-            parity_label(PARITY_OPTIONS[state.config_parity_idx]).to_string(),
-        ),
-        (
-            ConfigField::FlowControl,
-            "Flow Ctrl",
-            flow_control_label(FLOW_CONTROL_OPTIONS[state.config_flow_idx]).to_string(),
-        ),
-    ];
-
-    for (i, (field, label, value)) in field_rows.iter().enumerate() {
-        render_config_field_row(
-            frame,
-            setting_rows[i],
-            state.config_field == *field,
-            label,
-            value,
-        );
-    }
-
-    let summary = config_summary(state, &port_val);
-    frame.render_widget(
-        Paragraph::new(vec![
-            Line::from(Span::styled("  Summary", theme::title_style())),
-            Line::from(format!("  {}", summary)),
-        ])
-        .block(theme::panel_block(" Connection Preview ")),
-        rows[3],
-    );
-
-    let btn = Line::from(vec![
-        Span::raw("  "),
-        Span::styled(
-            " Enter:Connect ",
-            Style::default()
-                .bg(theme::SUCCESS)
-                .fg(Color::Black)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::raw("   "),
-        Span::styled(
-            " Esc:Cancel ",
-            Style::default().bg(theme::DANGER).fg(Color::White),
-        ),
-        Span::styled("   ↑↓/Tab:Field  ←→:Change", theme::muted_style()),
-    ]);
-    frame.render_widget(Paragraph::new(btn), rows[4]);
-}
-
-fn render_config_field_row(frame: &mut Frame, area: Rect, focused: bool, label: &str, value: &str) {
-    let (style, marker, arrows) = if focused {
-        (theme::selected_style(), ">", "◄ ► ")
-    } else {
-        (Style::default(), " ", "    ")
-    };
-    frame.render_widget(
-        Paragraph::new(format!("  {} {:<10} {}{}", marker, label, arrows, value)).style(style),
-        area,
-    );
-}
-
-fn config_summary(state: &SerialMonitorState, port: &str) -> String {
-    format!(
-        "{} @ {} {}{}{}  Flow: {}",
-        port,
-        BAUD_PRESETS[state.config_baud_idx],
-        data_bits_label(DATA_BITS_OPTIONS[state.config_databits_idx]),
-        parity_short(PARITY_OPTIONS[state.config_parity_idx]),
-        stop_bits_label(STOP_BITS_OPTIONS[state.config_stopbits_idx]),
-        flow_control_label(FLOW_CONTROL_OPTIONS[state.config_flow_idx]),
-    )
 }
 
 fn render_help_overlay(frame: &mut Frame, area: Rect) {
@@ -429,16 +393,24 @@ fn render_help_overlay(frame: &mut Frame, area: Rect) {
     let lines: Vec<Line<'static>> = vec![
         Line::from(Span::styled("  Global", h())),
         Line::from("  F1              Open help (any key closes)"),
-        Line::from("  F2              Open config / connect"),
+        Line::from("  F2              Focus Setup panel"),
         Line::from("  F3              Clear receive log"),
         Line::from("  F4              Cycle display mode (ASCII → HEX → BOTH)"),
         Line::from("  F5              Toggle auto-scroll"),
         Line::from("  F6              Copy log to clipboard"),
         Line::from("  F7              Save log to logs/"),
-        Line::from("  Tab             Switch focus: Receive ↔ Send"),
-        Line::from("  Ctrl+D          Disconnect"),
-        Line::from("  Esc             Return to Serial protocol page"),
+        Line::from("  Tab             Cycle focus: Setup → Receive → Send"),
+        Line::from("  Shift+Tab       Reverse cycle"),
+        Line::from("  Esc             Back to Serial page (when not in Setup)"),
         Line::from("  Ctrl+C          Quit"),
+        Line::from(""),
+        Line::from(Span::styled("  Setup Panel (Tab / F2 to enter)", h())),
+        Line::from("  ↑ / ↓           Navigate fields"),
+        Line::from("  ← / →           Change value"),
+        Line::from("  R               Refresh port list (on Port field)"),
+        Line::from("  Enter           Apply settings and connect"),
+        Line::from("  Ctrl+D          Disconnect only"),
+        Line::from("  Esc             Discard changes, focus Send"),
         Line::from(""),
         Line::from(Span::styled("  Send Panel", h())),
         Line::from("  Enter           Send current input"),
@@ -448,19 +420,12 @@ fn render_help_overlay(frame: &mut Frame, area: Rect) {
         Line::from("  Backspace/Del    Delete character"),
         Line::from("  Ctrl+H          Toggle HEX send mode"),
         Line::from("  Ctrl+N          Cycle newline suffix (None→CR→LF→CRLF)"),
+        Line::from("  Ctrl+D          Disconnect"),
         Line::from(""),
         Line::from(Span::styled("  Receive Panel", h())),
         Line::from("  ↑ / ↓           Scroll one line"),
         Line::from("  PgUp / PgDn     Scroll one page"),
         Line::from("  Home / End       Jump to top / bottom"),
-        Line::from(""),
-        Line::from(Span::styled("  Config Popup", h())),
-        Line::from("  ↑ / ↓           Next/prev field"),
-        Line::from("  Tab             Next field"),
-        Line::from("  Shift+Tab       Previous field"),
-        Line::from("  ← / →           Change value"),
-        Line::from("  Enter           Apply settings and connect"),
-        Line::from("  Esc             Cancel"),
         Line::from(""),
         Line::from(Span::styled("  (press any key to close)", d())),
     ];
